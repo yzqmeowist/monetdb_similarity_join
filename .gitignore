@@ -1,0 +1,7 @@
+MonetDB-11.53.15/build/
+monetdb/
+*.o
+*.a
+*.so
+*.dll
+*.dylib
