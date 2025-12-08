@@ -4,7 +4,7 @@ set -e
 ROOT_DIR=$(pwd)
 SRC_DIR="$ROOT_DIR/MonetDB-11.53.15"
 BUILD_DIR="$SRC_DIR/build"
-INSTALL_DIR="$ROOT_DIR/monetdb-compiled"
+INSTALL_DIR="$ROOT_DIR/install"
 
 echo "Cleaning..."
 rm -rf "$INSTALL_DIR"

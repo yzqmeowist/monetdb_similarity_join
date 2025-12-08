@@ -1,5 +1,5 @@
 MonetDB-11.53.15/build/
-monetdb-compiled/
+/install/
 *.o
 *.a
 *.so
