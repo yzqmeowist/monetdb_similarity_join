@@ -5,3 +5,5 @@ MonetDB-11.53.15/build/
 *.so
 *.dll
 *.dylib
+/monetdb_farm/
+.monetdb_auth
