@@ -5267,6 +5267,19 @@ rel_value_exp2(sql_query *query, sql_rel **rel, symbol *se, int f, exp_kind ek)
 	case SQL_XMLPI:
 	case SQL_XMLTEXT:
 		return rel_xml(query, rel, se, f, ek);
+	// similarity join
+	case SQL_DOT: {
+		dlist *l = se->data.lval;
+		sql_exp *l_exp, *r_exp;
+
+		if (!(l_exp = rel_value_exp(query, rel, l->h->data.sym, f, ek)))
+			return NULL;
+		
+		if (!(r_exp = rel_value_exp(query, rel, l->h->next->data.sym, f, ek)))
+			return NULL;
+
+		return rel_binop_(sql, *rel, l_exp, r_exp, "sys", "dot", card_value, 0);
+	}
 	default:
 		return rel_logical_value_exp(query, rel, se, f, ek);
 	}
