@@ -653,6 +653,8 @@ scanner_init_keywords(void)
 
 	failed += keywords_insert("LEAST", MARGFUNC);
 	failed += keywords_insert("GREATEST", MARGFUNC);
+
+	failed += keywords_insert("dot", DOT);
 	return failed;
 }
 
