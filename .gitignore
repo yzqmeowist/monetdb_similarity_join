@@ -1,5 +1,7 @@
 MonetDB-11.53.15/build/
 /install/
+/monetdb_farm/
+.monetdb_auth
 *.o
 *.a
 *.so
