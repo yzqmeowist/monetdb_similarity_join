@@ -1265,6 +1265,64 @@ CMDifthen(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
 	return MAL_SUCCEED;
 }
 
+/* similarity join */
+static str
+CMDbatDOT(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+    bat bid;
+    BAT *bn, *b1 = NULL, *b2 = NULL, *s1 = NULL, *s2 = NULL;
+    (void) cntxt;
+    (void) mb;
+
+    if (stk->stk[getArg(pci, 1)].bat) {
+        bid = *getArgReference_bat(stk, pci, 1);
+        b1 = BATdescriptor(bid);
+        if (b1 == NULL) goto bailout;
+    }
+
+    if (stk->stk[getArg(pci, 2)].bat) {
+        bid = *getArgReference_bat(stk, pci, 2);
+        b2 = BATdescriptor(bid);
+        if (b2 == NULL) goto bailout;
+    }
+
+    if (pci->argc > 4) {
+        bid = *getArgReference_bat(stk, pci, 4);
+        if (!is_bat_nil(bid)) {
+            s2 = BATdescriptor(bid);
+            if (s2 == NULL) goto bailout;
+        }
+    }
+    if (pci->argc > 3) {
+        bid = *getArgReference_bat(stk, pci, 3);
+        if (!is_bat_nil(bid)) {
+            s1 = BATdescriptor(bid);
+            if (s1 == NULL) goto bailout;
+        }
+    }
+
+    bn = BATcalcdotproduct(b1, b2, s1, s2);
+
+    if (b1) BBPunfix(b1->batCacheid);
+    if (b2) BBPunfix(b2->batCacheid);
+    if (s1) BBPreclaim(s1);
+    if (s2) BBPreclaim(s2);
+
+    if (bn == NULL)
+        return mythrow(MAL, "batcalc.dot", GDK_EXCEPTION);
+    
+    *getArgReference_bat(stk, pci, 0) = bn->batCacheid;
+    BBPkeepref(bn);
+    return MAL_SUCCEED;
+
+  bailout:
+    if (b1) BBPunfix(b1->batCacheid);
+    if (b2) BBPunfix(b2->batCacheid);
+    if (s1) BBPreclaim(s1);
+    if (s2) BBPreclaim(s2);
+    throw(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+}
+
 #include "mel.h"
 
 static str
@@ -1900,6 +1958,13 @@ batcalc_init(void)
 		    }
 		}
 	}
+	
+	/* similarity join*/
+	mel_func_arg dot_ret = { .type = TYPE_dbl, .isbat = 1 }; 
+	mel_func_arg dot_arg = { .type = TYPE_str, .isbat = 1 }; 
+	err += melFunction(false, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, "Compute dot product of two string vectors", 1, 3, dot_ret, dot_arg, dot_arg);
+	err += melFunction(false, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, "Compute dot product with candidate lists", 1, 5, dot_ret, dot_arg, dot_arg, cand, cand);
+    
 	return MAL_SUCCEED;
 }
 
