@@ -72,9 +72,8 @@ INSERT INTO uw VALUES ('u2', '[1.0, -0.5]'), ('u3', '[2.0, -1.0]'),
 INSERT INTO mw VALUES ('m1', '[1.9, -1.5]'), ('m2', '[1.1, -2.0]'), 
                       ('m4', '[2.1, -0.6]');
 
-SELECT 'Status', 'Database Ready' AS Info;
-SELECT 'Users Loaded', COUNT(*) FROM uw;
-SELECT 'Movies Loaded', COUNT(*) FROM mw;
+SELECT * FROM uw;
+SELECT * FROM mw;
 EOF
 
 echo "Done!"

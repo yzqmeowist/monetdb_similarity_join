@@ -1663,6 +1663,19 @@ exp_bin(backend *be, sql_exp *e, stmt *left, stmt *right, stmt *grp, stmt *ext, 
 		mod = sql_func_mod(f->func);
 		fimp = backend_function_imp(be, f->func);
 
+		/* similarity join */
+		// if (strcmp(fname, "dot") == 0) {
+        //      if (list_length(exps) == 2) {
+        //          sql_exp *arg1 = exps->h->data;
+        //          sql_exp *arg2 = exps->h->next->data;
+        //          stmt *l = exp_bin(be, arg1, left, right, grp, ext, cnt, sel, depth+1, 0, push);
+        //          stmt *r = exp_bin(be, arg2, left, right, grp, ext, cnt, sel, depth+1, 0, push);
+                 
+        //          if (!l || !r) return NULL;
+        //          return stmt_binop(be, l, r, NULL, "batcalc", "dot", tail_type(e));
+        //      }
+        // }
+
 		if (f->func->side_effect && left && left->nrcols > 0 && f->func->type != F_LOADER && exps_card(exps) < CARD_MULTI) {
 			rows = bin_find_smallest_column(be, left);
 		}
