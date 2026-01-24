@@ -1382,7 +1382,7 @@ CMDbatDOT(bat *res, const bat *bid1, const bat *bid2)
     return MAL_SUCCEED;
 }
 
-str
+static str
 CMDbatDOT_auto(bat *res, const bat *bid1, const bat *bid2)
 {
     BAT *b1, *b2;
@@ -1408,7 +1408,7 @@ CMDbatDOT_auto(bat *res, const bat *bid1, const bat *bid2)
     if (BATcalcstr2vec(&blob2, b2) != GDK_SUCCEED) {
         BBPunfix(b1->batCacheid);
         BBPunfix(b2->batCacheid);
-        BBPreclaim(blob1); // 别忘了释放第一个生成的 blob BAT
+        BBPreclaim(blob1);
         throw(MAL, "batcalc.dot", "Auto-conversion of second argument failed");
     }
 
