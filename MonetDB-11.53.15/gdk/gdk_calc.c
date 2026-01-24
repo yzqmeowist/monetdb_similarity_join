@@ -4815,142 +4815,289 @@ BATcalcifthencstelsecst(BAT *b, const ValRecord *c1, const ValRecord *c2)
 
 /* similarity join */
 
-static double
-vector_dot(const char *s1, const char *s2)
+// static double
+// vector_dot(const char *s1, const char *s2)
+// {
+// 	double sum = 0.0;
+// 	char *end1, *end2;
+// 	const char *p1 = s1;
+// 	const char *p2 = s2;
+
+// 	if (!p1 || !p2) return dbl_nil;
+
+// 	while (*p1 && (*p1 == '[' || isspace(*p1))) p1++;
+// 	while (*p2 && (*p2 == '[' || isspace(*p2))) p2++;
+
+// 	while (*p1 && *p2 && *p1 != ']' && *p2 != ']')
+// 	{
+// 		double v1 = strtod(p1, &end1);
+// 		double v2 = strtod(p2, &end2);
+
+// 		if (p1 == end1 || p2 == end2) break;
+
+// 		sum += v1 * v2;
+// 		p1 = end1;
+// 		p2 = end2;
+
+// 		while (*p1 && (*p1 == ',' || isspace(*p1))) p1++;
+// 		while (*p2 && (*p2 == ',' || isspace(*p2))) p2++;
+// 	}
+
+// 	if (!(*p1 == ']' || *p1 == '\0') || !(*p2 == ']' || *p2 == '\0'))
+// 	{
+// 		GDKerror("Vectors have different dimensions.\n");
+// 		return dbl_nil;
+// 	}
+
+// 	return sum;
+// }
+
+// BAT *
+// BATcalcdotproduct(BAT *b1, BAT *b2, BAT *s1, BAT *s2)
+// {
+//     lng t0 = 0;
+//     BAT *bn;
+//     BUN nils = 0;
+//     struct canditer ci1, ci2;
+//     BUN k;
+
+//     QryCtx *qry_ctx = MT_thread_get_qry_ctx();
+
+//     TRC_DEBUG_IF(ALGO) t0 = GDKusec();
+
+//     BATcheck(b1, NULL);
+//     BATcheck(b2, NULL);
+
+//     if (ATOMstorage(b1->ttype) != TYPE_str || ATOMstorage(b2->ttype) != TYPE_str) {
+//         GDKerror("BATcalcdotproduct: inputs must be string type.\n");
+//         return NULL;
+//     }
+
+//     canditer_init(&ci1, b1, s1);
+//     canditer_init(&ci2, b2, s2);
+
+//     if (ci1.ncand != ci2.ncand) {
+//         GDKerror("BATcalcdotproduct: inputs not the same size.\n");
+//         return NULL;
+//     }
+
+//     bn = COLnew(ci1.hseq, TYPE_dbl, ci1.ncand, TRANSIENT);
+//     if (bn == NULL) return NULL;
+
+//     dbl *restrict dst = (dbl *) Tloc(bn, 0);
+
+//     BATiter b1i = bat_iterator(b1);
+//     BATiter b2i = bat_iterator(b2);
+
+//     TIMEOUT_LOOP_IDX(k, ci1.ncand, qry_ctx) {
+//         oid x1 = canditer_next(&ci1) - b1->hseqbase;
+//         oid x2 = canditer_next(&ci2) - b2->hseqbase;
+
+//         const char *v1 = (const char *) BUNtvar(b1i, x1);
+//         const char *v2 = (const char *) BUNtvar(b2i, x2);
+
+//         if (strNil(v1) || strNil(v2)) {
+//             dst[k] = dbl_nil;
+//             nils++;
+//         } else {
+//             dst[k] = vector_dot(v1, v2);
+//             if (is_dbl_nil(dst[k])) {
+//                 nils++;
+//             }
+//         }
+//     }
+
+// 	TIMEOUT_CHECK(qry_ctx, GOTO_LABEL_TIMEOUT_HANDLER(bailout, qry_ctx));
+
+//     bat_iterator_end(&b1i);
+//     bat_iterator_end(&b2i);
+
+//     BATsetcount(bn, ci1.ncand);
+    
+//     bn->tsorted = ci1.ncand <= 1;
+//     bn->trevsorted = ci1.ncand <= 1;
+//     bn->tkey = ci1.ncand <= 1;
+    
+//     bn->tnil = nils != 0;
+//     bn->tnonil = nils == 0;
+
+//     TRC_DEBUG(ALGO, "b1=" ALGOBATFMT ",b2=" ALGOBATFMT
+//               " -> " ALGOOPTBATFMT " " LLFMT "usec\n",
+//               ALGOBATPAR(b1), ALGOBATPAR(b2),
+//               ALGOOPTBATPAR(bn), GDKusec() - t0);
+
+//     return bn;
+
+// bailout:
+//     bat_iterator_end(&b1i);
+//     bat_iterator_end(&b2i);
+//     BBPreclaim(bn);
+//     return NULL;
+// }
+
+// gdk_return
+// VARcalcdotproduct(ValPtr ret, const ValRecord *lft, const ValRecord *rgt)
+// {
+//     if (ATOMstorage(lft->vtype) != TYPE_str || ATOMstorage(rgt->vtype) != TYPE_str) {
+//         GDKerror("Inputs must be string type.\n");
+//         return GDK_FAIL;
+//     }
+
+//     ret->vtype = TYPE_dbl;
+//     ret->val.dval = dbl_nil;
+
+//     if (VALisnil(lft) || VALisnil(rgt)) {
+//         return GDK_SUCCEED;
+//     }
+
+//     ret->val.dval = vector_dot(lft->val.sval, rgt->val.sval);
+
+//     return GDK_SUCCEED;
+// }
+
+/* similarity join (blob version) */
+
+static blob *
+str_to_blob_vector(const char *s, int *out_len)
 {
-	double sum = 0.0;
-	char *end1, *end2;
-	const char *p1 = s1;
-	const char *p2 = s2;
+    if (strNil(s)) return NULL;
 
-	if (!p1 || !p2) return dbl_nil;
-
-	while (*p1 && (*p1 == '[' || isspace(*p1))) p1++;
-	while (*p2 && (*p2 == '[' || isspace(*p2))) p2++;
-
-	while (*p1 && *p2 && *p1 != ']' && *p2 != ']')
-	{
-		double v1 = strtod(p1, &end1);
-		double v2 = strtod(p2, &end2);
-
-		if (p1 == end1 || p2 == end2) break;
-
-		sum += v1 * v2;
-		p1 = end1;
-		p2 = end2;
-
-		while (*p1 && (*p1 == ',' || isspace(*p1))) p1++;
-		while (*p2 && (*p2 == ',' || isspace(*p2))) p2++;
-	}
-
-	if (!(*p1 == ']' || *p1 == '\0') || !(*p2 == ']' || *p2 == '\0'))
-	{
-		GDKerror("Vectors have different dimensions.\n");
-		return dbl_nil;
-	}
-
-	return sum;
-}
-
-BAT *
-BATcalcdotproduct(BAT *b1, BAT *b2, BAT *s1, BAT *s2)
-{
-    lng t0 = 0;
-    BAT *bn;
-    BUN nils = 0;
-    struct canditer ci1, ci2;
-    BUN k;
-
-    QryCtx *qry_ctx = MT_thread_get_qry_ctx();
-
-    TRC_DEBUG_IF(ALGO) t0 = GDKusec();
-
-    BATcheck(b1, NULL);
-    BATcheck(b2, NULL);
-
-    if (ATOMstorage(b1->ttype) != TYPE_str || ATOMstorage(b2->ttype) != TYPE_str) {
-        GDKerror("BATcalcdotproduct: inputs must be string type.\n");
-        return NULL;
-    }
-
-    canditer_init(&ci1, b1, s1);
-    canditer_init(&ci2, b2, s2);
-
-    if (ci1.ncand != ci2.ncand) {
-        GDKerror("BATcalcdotproduct: inputs not the same size.\n");
-        return NULL;
-    }
-
-    bn = COLnew(ci1.hseq, TYPE_dbl, ci1.ncand, TRANSIENT);
-    if (bn == NULL) return NULL;
-
-    dbl *restrict dst = (dbl *) Tloc(bn, 0);
-
-    BATiter b1i = bat_iterator(b1);
-    BATiter b2i = bat_iterator(b2);
-
-    TIMEOUT_LOOP_IDX(k, ci1.ncand, qry_ctx) {
-        oid x1 = canditer_next(&ci1) - b1->hseqbase;
-        oid x2 = canditer_next(&ci2) - b2->hseqbase;
-
-        const char *v1 = (const char *) BUNtvar(b1i, x1);
-        const char *v2 = (const char *) BUNtvar(b2i, x2);
-
-        if (strNil(v1) || strNil(v2)) {
-            dst[k] = dbl_nil;
-            nils++;
-        } else {
-            dst[k] = vector_dot(v1, v2);
-            if (is_dbl_nil(dst[k])) {
-                nils++;
-            }
+	// calculate the dimension
+    int dim = 0;
+    const char *p = s;
+    int has_num = 0;
+    
+    while (*p && (*p == '[' || isspace(*p))) p++;
+    
+	const char *scan = p;
+    while (*scan && *scan != ']') {
+        if (isdigit(*scan) || *scan == '-') {
+            if (!has_num) { dim++; has_num = 1; }
+        } else if (*scan == ',') {
+            has_num = 0; 
         }
+        scan++;
+    }
+    
+    if (dim == 0) return NULL;
+
+    // memory allocation for blobs
+    size_t data_size = dim * sizeof(float);
+    size_t total_size = sizeof(blob) + data_size;
+    
+    blob *b = GDKmalloc(total_size);
+    if (!b) return NULL;
+
+    b->nitems = data_size; 
+    float *f_data = (float *) b->data;
+    
+    p = s; 
+    while (*p && (*p == '[' || isspace(*p))) p++;
+    for (int i = 0; i < dim; i++) {
+        char *endptr;
+        f_data[i] = (float)strtod(p, &endptr);
+        p = endptr;
+        while (*p && *p != ',' && *p != ']') p++;
+        if (*p == ',') p++;
     }
 
-	TIMEOUT_CHECK(qry_ctx, GOTO_LABEL_TIMEOUT_HANDLER(bailout, qry_ctx));
-
-    bat_iterator_end(&b1i);
-    bat_iterator_end(&b2i);
-
-    BATsetcount(bn, ci1.ncand);
-    
-    bn->tsorted = ci1.ncand <= 1;
-    bn->trevsorted = ci1.ncand <= 1;
-    bn->tkey = ci1.ncand <= 1;
-    
-    bn->tnil = nils != 0;
-    bn->tnonil = nils == 0;
-
-    TRC_DEBUG(ALGO, "b1=" ALGOBATFMT ",b2=" ALGOBATFMT
-              " -> " ALGOOPTBATFMT " " LLFMT "usec\n",
-              ALGOBATPAR(b1), ALGOBATPAR(b2),
-              ALGOOPTBATPAR(bn), GDKusec() - t0);
-
-    return bn;
-
-bailout:
-    bat_iterator_end(&b1i);
-    bat_iterator_end(&b2i);
-    BBPreclaim(bn);
-    return NULL;
+    if (out_len) *out_len = (int) total_size;
+    return b;
 }
 
 gdk_return
-VARcalcdotproduct(ValPtr ret, const ValRecord *lft, const ValRecord *rgt)
+BATcalcstr2vec(BAT **res, const BAT *b)
 {
-    if (ATOMstorage(lft->vtype) != TYPE_str || ATOMstorage(rgt->vtype) != TYPE_str) {
-        GDKerror("Inputs must be string type.\n");
+    BAT *bn = NULL;
+    BUN i, count;
+    BATiter bi = bat_iterator((BAT*)b);
+    const void *nil_blob_ptr = ATOMnilptr(TYPE_blob);
+
+    count = BATcount(b);
+    bn = COLnew(b->hseqbase, TYPE_blob, count, TRANSIENT);
+    if (bn == NULL) return GDK_FAIL;
+
+    for (i = 0; i < count; i++) {
+        const char *s = (const char *) BUNtvar(bi, i);
+        
+        if (strNil(s)) {
+            if (BUNappend(bn, nil_blob_ptr, false) != GDK_SUCCEED) goto fail;
+        } else {
+            int len = 0;
+            blob *val = str_to_blob_vector(s, &len);
+            if (!val) {
+                if (BUNappend(bn, nil_blob_ptr, false) != GDK_SUCCEED) goto fail;
+            } else {
+                if (BUNappend(bn, val, false) != GDK_SUCCEED) {
+                    GDKfree(val);
+                    goto fail;
+                }
+                GDKfree(val);
+            }
+        }
+    }
+    
+    *res = bn;
+    return GDK_SUCCEED;
+
+fail:
+    if (bn) BBPreclaim(bn);
+    return GDK_FAIL;
+}
+
+static double
+blob_dot(const blob *b1, const blob *b2)
+{
+    float *v1 = (float *) b1->data;
+    float *v2 = (float *) b2->data;
+    
+    int dim1 = (int)(b1->nitems / sizeof(float));
+    int dim2 = (int)(b2->nitems / sizeof(float));
+    
+    if (dim1 != dim2) return dbl_nil;
+
+    double sum = 0.0;
+    for (int i = 0; i < dim1; i++) {
+        sum += (double)v1[i] * (double)v2[i];
+    }
+    return sum;
+}
+
+gdk_return
+BATcalcblobsdot(BAT **res, const BAT *b1, const BAT *b2)
+{
+    BAT *bn = NULL;
+    BUN i, count;
+    
+    if (BATcount(b1) != BATcount(b2)) {
+        GDKerror("batcalc.dot: BATs must have same length\n");
         return GDK_FAIL;
     }
 
-    ret->vtype = TYPE_dbl;
-    ret->val.dval = dbl_nil;
+    count = BATcount(b1);
+    bn = COLnew(b1->hseqbase, TYPE_dbl, count, TRANSIENT);
+    if (bn == NULL) return GDK_FAIL;
 
-    if (VALisnil(lft) || VALisnil(rgt)) {
-        return GDK_SUCCEED;
+    BATiter bi1 = bat_iterator((BAT*)b1);
+    BATiter bi2 = bat_iterator((BAT*)b2);
+
+    for (i = 0; i < count; i++) {
+        const blob *v1 = (const blob *) BUNtvar(bi1, i);
+        const blob *v2 = (const blob *) BUNtvar(bi2, i);
+        
+        if (is_blob_nil(v1) || is_blob_nil(v2)) {
+            double nil = dbl_nil;
+            if (BUNappend(bn, &nil, false) != GDK_SUCCEED) goto fail;
+        } else {
+            double d = blob_dot(v1, v2);
+            if (BUNappend(bn, &d, false) != GDK_SUCCEED) goto fail;
+        }
     }
 
-    ret->val.dval = vector_dot(lft->val.sval, rgt->val.sval);
-
+    *res = bn;
     return GDK_SUCCEED;
+
+fail:
+    if (bn) BBPreclaim(bn);
+    return GDK_FAIL;
 }

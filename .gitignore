@@ -9,3 +9,4 @@ MonetDB-11.53.15/build/
 *.dylib
 /monetdb_farm/
 .monetdb_auth
+.DS_Store

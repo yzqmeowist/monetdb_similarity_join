@@ -170,5 +170,8 @@ gdk_export BAT *BATgroupstr_group_concat(BAT *b, BAT *g, BAT *e, BAT *s, BAT *se
 gdk_export gdk_return BATstr_group_concat(ValPtr res, BAT *b, BAT *s, BAT *sep, bool skip_nils, bool nil_if_empty, const char *restrict separator);
 gdk_export gdk_return GDKanalytical_str_group_concat(BAT *r, BAT *p, BAT *o, BAT *b, BAT *sep, BAT *s, BAT *e, const char *restrict separator, int frame_type);
 
-gdk_export BAT *BATcalcdotproduct(BAT *b1, BAT *b2, BAT *s1, BAT *s2);
-gdk_return VARcalcdotproduct(ValPtr ret, const ValRecord *lft, const ValRecord *rgt);
+// gdk_export BAT *BATcalcdotproduct(BAT *b1, BAT *b2, BAT *s1, BAT *s2);
+// gdk_return VARcalcdotproduct(ValPtr ret, const ValRecord *lft, const ValRecord *rgt);
+gdk_export gdk_return BATcalcstr2vec(BAT **res, const BAT *b);
+gdk_export gdk_return BATcalcblobsdot(BAT **res, const BAT *b1, const BAT *b2);
+
