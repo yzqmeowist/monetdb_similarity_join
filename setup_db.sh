@@ -74,6 +74,9 @@ INSERT INTO mw VALUES ('m1', '[1.9, -1.5]'), ('m2', '[1.1, -2.0]'),
 
 SELECT * FROM uw;
 SELECT * FROM mw;
+SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 5;
+SELECT U,M FROM uw, mw WHERE dot(F,G) > 3;
+
 EOF
 
 echo "Done!"

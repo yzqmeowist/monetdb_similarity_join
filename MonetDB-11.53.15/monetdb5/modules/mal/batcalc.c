@@ -1382,6 +1382,56 @@ CMDbatDOT(bat *res, const bat *bid1, const bat *bid2)
     return MAL_SUCCEED;
 }
 
+str
+CMDbatDOT_auto(bat *res, const bat *bid1, const bat *bid2)
+{
+    BAT *b1, *b2;
+    BAT *blob1 = NULL, *blob2 = NULL;
+    BAT *bn = NULL;
+    gdk_return ret;
+
+	// String BAT
+    if ((b1 = BATdescriptor(*bid1)) == NULL)
+        throw(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    if ((b2 = BATdescriptor(*bid2)) == NULL) {
+        BBPunfix(b1->batCacheid);
+        throw(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    }
+
+    // String -> Blob
+    if (BATcalcstr2vec(&blob1, b1) != GDK_SUCCEED) {
+        BBPunfix(b1->batCacheid);
+        BBPunfix(b2->batCacheid);
+        throw(MAL, "batcalc.dot", "Auto-conversion of first argument failed");
+    }
+    
+    if (BATcalcstr2vec(&blob2, b2) != GDK_SUCCEED) {
+        BBPunfix(b1->batCacheid);
+        BBPunfix(b2->batCacheid);
+        BBPreclaim(blob1); // 别忘了释放第一个生成的 blob BAT
+        throw(MAL, "batcalc.dot", "Auto-conversion of second argument failed");
+    }
+
+    // Blob -> Dot
+    ret = BATcalcblobsdot(&bn, blob1, blob2);
+
+    BBPunfix(b1->batCacheid);
+    BBPunfix(b2->batCacheid);
+    BBPreclaim(blob1);
+    BBPreclaim(blob2);
+
+    if (ret != GDK_SUCCEED)
+        throw(MAL, "batcalc.dot", GDK_EXCEPTION);
+
+    if (bn) {
+        *res = bn->batCacheid;
+        BBPkeepref(bn);
+    } else {
+        *res = bat_nil;
+    }
+    return MAL_SUCCEED;
+}
+
 #include "mel.h"
 
 static str
@@ -2032,6 +2082,9 @@ batcalc_init(void)
 	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, 
                        "Compute dot product of two blob vectors", 
                        1, 3, arg_dbl_bat, arg_blob_bat, arg_blob_bat);
+	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT_auto, "CMDbatDOT_auto", false, 
+                       "Compute dot product of two string vectors (auto-convert)", 
+                       1, 3, arg_dbl_bat, arg_str_bat, arg_str_bat);
 
 	return MAL_SUCCEED;
 }
