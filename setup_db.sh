@@ -63,17 +63,12 @@ echo "Initializing data..."
 DROP TABLE IF EXISTS uw;
 DROP TABLE IF EXISTS mw;
 
-CREATE TABLE uw (U VARCHAR(10), F VARCHAR(50));
-CREATE TABLE mw (M VARCHAR(10), G VARCHAR(50));
+CREATE TABLE uw (U VARCHAR(10), F VARCHAR(2000));
+CREATE TABLE mw (M VARCHAR(10), G VARCHAR(2000));
 
-INSERT INTO uw VALUES ('u2', '[1.0, -0.5]'), ('u3', '[2.0, -1.0]'), 
-                      ('u4', '[4.2, 1.3]'),  ('u5', '[1.0, -0.7]');
+COPY INTO uw FROM '$ROOT_DIR/ml-latest-small/uw.csv' USING DELIMITERS ',', '\n', '"';
+COPY INTO mw FROM '$ROOT_DIR/ml-latest-small/mw.csv' USING DELIMITERS ',', '\n', '"';
 
-INSERT INTO mw VALUES ('m1', '[1.9, -1.5]'), ('m2', '[1.1, -2.0]'), 
-                      ('m4', '[2.1, -0.6]');
-
-SELECT * FROM uw;
-SELECT * FROM mw;
 SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 5;
 SELECT U,M FROM uw, mw WHERE dot(F,G) > 3;
 
@@ -84,3 +79,9 @@ echo "Please execute the following command to test your changes:"
 echo "    export DOTMONETDBFILE=\"$AUTH_FILE\""
 echo "    export PATH=\"$BIN_DIR:\$PATH\""
 echo "    mclient -d $DB_NAME"
+
+# INSERT INTO uw VALUES ('u2', '[1.0, -0.5]'), ('u3', '[2.0, -1.0]'), 
+#                       ('u4', '[4.2, 1.3]'),  ('u5', '[1.0, -0.7]');
+
+# INSERT INTO mw VALUES ('m1', '[1.9, -1.5]'), ('m2', '[1.1, -2.0]'), 
+#                       ('m4', '[2.1, -0.6]');
