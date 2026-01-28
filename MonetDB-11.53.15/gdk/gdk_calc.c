@@ -4992,14 +4992,28 @@ str_to_blob_vector(const char *s, int *out_len)
     float *f_data = (float *) b->data;
     
     p = s; 
-    while (*p && (*p == '[' || isspace(*p))) p++;
+    int parsed = 0;
+	while (*p && (*p == '[' || isspace(*p))) p++;
     for (int i = 0; i < dim; i++) {
         char *endptr;
-        f_data[i] = (float)strtod(p, &endptr);
+		float v = (float)strtod(p, &endptr);
+        
+		if (p == endptr) {
+			GDKfree(b);
+			return NULL; 
+		}
+		
+		f_data[i] = v;
+		parsed++;
         p = endptr;
         while (*p && *p != ',' && *p != ']') p++;
         if (*p == ',') p++;
     }
+
+	if (parsed != dim) {
+		GDKfree(b);
+		return NULL;
+	}
 
     if (out_len) *out_len = (int) total_size;
     return b;
@@ -5038,10 +5052,12 @@ BATcalcstr2vec(BAT **res, const BAT *b)
     }
     
     *res = bn;
+	bat_iterator_end(&bi);
     return GDK_SUCCEED;
 
 fail:
     if (bn) BBPreclaim(bn);
+	bat_iterator_end(&bi);
     return GDK_FAIL;
 }
 
@@ -5095,9 +5111,13 @@ BATcalcblobsdot(BAT **res, const BAT *b1, const BAT *b2)
     }
 
     *res = bn;
+	bat_iterator_end(&bi1);
+	bat_iterator_end(&bi2);
     return GDK_SUCCEED;
 
 fail:
     if (bn) BBPreclaim(bn);
+	bat_iterator_end(&bi1);
+	bat_iterator_end(&bi2);
     return GDK_FAIL;
 }
