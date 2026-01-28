@@ -783,6 +783,9 @@ SQLCODE SQLERROR UNDER WHENEVER
  */
 %token <sval> WITH_LA INTO_LA OUTER_UNION TO_LA
 
+/* similarity join */
+%token <sval> DOT
+
 /* operators (highest precedence at the end) */
 %left OUTER_UNION UNION EXCEPT
 %left INTERSECT
@@ -4610,6 +4613,13 @@ scalar_exp:
 		  append_symbol(l, $4);
 		  append_symbol(l, $6);
 		  $$ = _symbol_create_list(SQL_BETWEEN, l ); }
+ /* similarity join */
+ |  DOT '(' scalar_exp ',' scalar_exp ')' 
+ 		{ dlist *l = L();
+		  append_symbol(l, $3);
+		  append_symbol(l, $5);
+		  
+		  $$ = symbol_create_list(m->sa, SQL_DOT, l); }
  |  DEFAULT	{ $$ = _symbol_create(SQL_DEFAULT, NULL ); }
  ;
 

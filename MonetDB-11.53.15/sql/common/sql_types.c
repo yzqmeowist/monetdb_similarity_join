@@ -1735,6 +1735,12 @@ sqltypeinit( allocator *sa)
 	/* sys_update_schemas, sys_update_tables */
 	sql_create_procedure(sa, "sys_update_schemas", "sql", "update_schemas", FALSE, 0);
 	sql_create_procedure(sa, "sys_update_tables", "sql", "update_tables", FALSE, 0);
+
+	/* similarity join */
+	// sql_create_func(sa, "dot", "batcalc", "dot", FALSE, FALSE, SCALE_NONE, 0, DBL, 2, STR, STR);
+	sql_create_func(sa, "str_to_vec", "batcalc", "str_to_vec", FALSE, FALSE, SCALE_NONE, 0, BLOB, 1, STR);
+	sql_create_func(sa, "dot", "batcalc", "dot", FALSE, FALSE, SCALE_NONE, 0, DBL, 2, BLOB, BLOB);
+	sql_create_func(sa, "dot", "batcalc", "dot", FALSE, FALSE, SCALE_NONE, 0, DBL, 2, STR, STR);
 }
 
 void
