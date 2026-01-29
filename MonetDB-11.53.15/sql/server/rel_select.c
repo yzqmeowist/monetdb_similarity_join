@@ -5280,18 +5280,41 @@ rel_value_exp2(sql_query *query, sql_rel **rel, symbol *se, int f, exp_kind ek)
 
 		return rel_binop_(sql, *rel, l_exp, r_exp, "sys", "dot", card_value, 0);
 	}
+	// compression similarity join - Task 2 
 	case SQL_CDOT: {
-		dlist *l = se->data.lval;
-		sql_exp *l_exp, *r_exp;
+    dlist *l = se->data.lval;
+    sql_exp *l_exp, *r_exp, *method_exp, *param_exp;
+    
+    /* 左向量 */
+    if (!(l_exp = rel_value_exp(query, rel, l->h->data.sym, f, ek)))
+        return NULL;
+    
+    /* 右向量  */
+    if (!(r_exp = rel_value_exp(query, rel, l->h->next->data.sym, f, ek)))
+        return NULL;
+    
+    /* 压缩方法  */
+    if (!(method_exp = rel_value_exp(query, rel, l->h->next->next->data.sym, f, ek)))
+        return NULL;
+    
+    /* 压缩参数  */
+    if (!(param_exp = rel_value_exp(query, rel, l->h->next->next->next->data.sym, f, ek)))
+        return NULL;
 
-		if (!(l_exp = rel_value_exp(query, rel, l->h->data.sym, f, ek)))
-			return NULL;
-		
-		if (!(r_exp = rel_value_exp(query, rel, l->h->next->data.sym, f, ek)))
-			return NULL;
-
-		return rel_binop_(sql, *rel, l_exp, r_exp, "sys", "dot", card_value, 0);
+     /* 查找系统函数 "cdot" */
+    sql_subfunc *cdot_func = sql_bind_func(sql, "sys", "cdot", exp_subtype(l_exp), exp_subtype(r_exp), F_FUNC, false, false);      
+    
+    if (!cdot_func) {
+        /* 函数未注册，可以创建但会运行时失败 */
+        sql_error(sql, 02, SQLSTATE(42000) "CDOT: function 'sys.cdot' not found (will fail at runtime)");
+        /* 仍然创建表达式，但函数指针为NULL */
+        cdot_func = NULL;
+    }
+    
+    /* 使用 exp_op4，最后一个参数是函数指针 */
+    return exp_op4(sql->sa, l_exp, r_exp, method_exp, param_exp, cdot_func);
 	}
+	default:
 		return rel_logical_value_exp(query, rel, se, f, ek);
 	}
 }

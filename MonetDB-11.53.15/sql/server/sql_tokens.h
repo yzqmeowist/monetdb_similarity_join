@@ -62,6 +62,7 @@ typedef enum tokens {
 	SQL_DELETE,
 	SQL_DOT, /* similarity join */
 	SQL_CDOT, /* similarity join */
+	SQL_PCA, /* PCA compression */
 	SQL_DROP_COLUMN,
 	SQL_DROP_CONSTRAINT,
 	SQL_DROP_DEFAULT,

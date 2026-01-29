@@ -360,6 +360,8 @@ int yydebug=1;
 	XML_query
 	XML_text
 	XML_validate
+	/* compression similarity join */
+	compression_method
 
 %type <type>
 	data_type
@@ -787,6 +789,7 @@ SQLCODE SQLERROR UNDER WHENEVER
 %token <sval> DOT
  /* compression similarity join*/
 %token <sval> CDOT
+%token <sval> PCA  
 
 /* operators (highest precedence at the end) */
 %left OUTER_UNION UNION EXCEPT
@@ -4623,16 +4626,24 @@ scalar_exp:
 		  
 		  $$ = symbol_create_list(m->sa, SQL_DOT, l); }
 	/* compression similarity join */
- |  CDOT '(' scalar_exp ',' scalar_exp ')'
+/* CDOT(左,右,方法,参数) */
+ |  CDOT '(' scalar_exp ',' scalar_exp ',' compression_method ',' scalar_exp ')'
 		{
 		  dlist *l = L();
 		  append_symbol(l, $3);    /* 左向量 */
 		  append_symbol(l, $5);    /* 右向量 */
+		  append_symbol(l, $7);    /* 压缩方法 */
+		  append_symbol(l, $9);    /* 压缩参数 */
 		  
 		  $$ = symbol_create_list(m->sa, SQL_CDOT, l); }
 	|  DEFAULT { $$ = _symbol_create(SQL_DEFAULT, NULL ); }
 	;
 
+/* compression method */
+compression_method:
+    PCA { $$ = _symbol_create(SQL_PCA, NULL); }
+  ;
+	
 in_expr:
      select_with_parens { $$ = append_symbol(L(), $1); }
  | '(' expr_list ')'	{ $$ = $2; }
