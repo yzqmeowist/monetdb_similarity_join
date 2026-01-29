@@ -5292,6 +5292,7 @@ rel_value_exp2(sql_query *query, sql_rel **rel, symbol *se, int f, exp_kind ek)
 
 		return rel_binop_(sql, *rel, l_exp, r_exp, "sys", "dot", card_value, 0);
 	}
+	default:
 		return rel_logical_value_exp(query, rel, se, f, ek);
 	}
 }
