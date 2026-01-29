@@ -785,6 +785,8 @@ SQLCODE SQLERROR UNDER WHENEVER
 
 /* similarity join */
 %token <sval> DOT
+ /* compression similarity join*/
+%token <sval> CDOT
 
 /* operators (highest precedence at the end) */
 %left OUTER_UNION UNION EXCEPT
@@ -4620,8 +4622,16 @@ scalar_exp:
 		  append_symbol(l, $5);
 		  
 		  $$ = symbol_create_list(m->sa, SQL_DOT, l); }
- |  DEFAULT	{ $$ = _symbol_create(SQL_DEFAULT, NULL ); }
- ;
+	/* compression similarity join */
+ |  CDOT '(' scalar_exp ',' scalar_exp ')'
+		{
+		  dlist *l = L();
+		  append_symbol(l, $3);    /* 左向量 */
+		  append_symbol(l, $5);    /* 右向量 */
+		  
+		  $$ = symbol_create_list(m->sa, SQL_CDOT, l); }
+	|  DEFAULT { $$ = _symbol_create(SQL_DEFAULT, NULL ); }
+	;
 
 in_expr:
      select_with_parens { $$ = append_symbol(L(), $1); }
