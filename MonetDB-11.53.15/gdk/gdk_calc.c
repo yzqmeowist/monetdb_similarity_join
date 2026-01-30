@@ -5121,3 +5121,101 @@ fail:
 	bat_iterator_end(&bi2);
     return GDK_FAIL;
 }
+
+gdk_return
+BATcalccdot(BAT **res, const BAT *b1, const BAT *b2)
+{
+    BAT *bn = NULL;
+    BUN i, count;
+    BATiter bi1, bi2;
+    int target_dim = 8;
+    
+    if (BATcount(b1) != BATcount(b2)) {
+        GDKerror("BATcalccdot: BATs must have same length\n");
+        return GDK_FAIL;
+    }
+    
+    count = BATcount(b1);
+    bn = COLnew(b1->hseqbase, TYPE_dbl, count, TRANSIENT);
+    if (bn == NULL) return GDK_FAIL;
+    
+    bi1 = bat_iterator(b1);
+    bi2 = bat_iterator(b2);
+    
+    for (i = 0; i < count; i++) {
+        const char *s1 = (const char *) BUNtvar(bi1, i);
+        const char *s2 = (const char *) BUNtvar(bi2, i);
+        
+        if (strNil(s1) || strNil(s2)) {
+            double nil = dbl_nil;
+            if (BUNappend(bn, &nil, false) != GDK_SUCCEED) goto fail;
+            continue;
+        }
+        
+        int len1, len2;
+        blob *bvec1 = str_to_blob_vector(s1, &len1);
+        blob *bvec2 = str_to_blob_vector(s2, &len2);
+        
+        if (!bvec1 || !bvec2) {
+            double nil = dbl_nil;
+            if (BUNappend(bn, &nil, false) != GDK_SUCCEED) {
+                if (bvec1) GDKfree(bvec1);
+                if (bvec2) GDKfree(bvec2);
+                goto fail;
+            }
+            if (bvec1) GDKfree(bvec1);
+            if (bvec2) GDKfree(bvec2);
+            continue;
+        }
+        
+        float *orig1 = (float *)bvec1->data;
+        float *orig2 = (float *)bvec2->data;
+        int dim1 = (int)(bvec1->nitems / sizeof(float));
+        int dim2 = (int)(bvec2->nitems / sizeof(float));
+        
+        // 随机投影降维
+        srand(42 + i); 
+        
+        double dot_result = 0.0;
+        for (int j = 0; j < target_dim; j++) {
+            float proj1 = 0.0, proj2 = 0.0;
+            
+            // 对第一个向量投影
+            for (int k = 0; k < dim1; k++) {
+                float weight = ((float)rand() / RAND_MAX) * 2.0 - 1.0;
+                proj1 += orig1[k] * weight;
+            }
+            proj1 /= sqrtf(dim1);
+            
+            // 对第二个向量投影
+            srand(42 + i + j * 1000); 
+            for (int k = 0; k < dim2; k++) {
+                float weight = ((float)rand() / RAND_MAX) * 2.0 - 1.0;
+                proj2 += orig2[k] * weight;
+            }
+            proj2 /= sqrtf(dim2);
+            
+            dot_result += (double)proj1 * (double)proj2;
+        }
+        
+        if (BUNappend(bn, &dot_result, false) != GDK_SUCCEED) {
+            GDKfree(bvec1);
+            GDKfree(bvec2);
+            goto fail;
+        }
+        
+        GDKfree(bvec1);
+        GDKfree(bvec2);
+    }
+    
+    *res = bn;
+    bat_iterator_end(&bi1);
+    bat_iterator_end(&bi2);
+    return GDK_SUCCEED;
+    
+fail:
+    bat_iterator_end(&bi1);
+    bat_iterator_end(&bi2);
+    if (bn) BBPreclaim(bn);
+    return GDK_FAIL;
+}

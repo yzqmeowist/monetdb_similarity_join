@@ -1432,6 +1432,37 @@ CMDbatDOT_auto(bat *res, const bat *bid1, const bat *bid2)
     return MAL_SUCCEED;
 }
 
+// cdot wrapper function
+static str
+CMDbatCDOT(bat *res, const bat *bid1, const bat *bid2)
+{
+    BAT *b1, *b2, *bn = NULL;
+    
+    if ((b1 = BATdescriptor(*bid1)) == NULL)
+        throw(MAL, "batcalc.cdot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    
+    if ((b2 = BATdescriptor(*bid2)) == NULL) {
+        BBPunfix(b1->batCacheid);
+        throw(MAL, "batcalc.cdot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    }
+    
+    gdk_return ret = BATcalccdot(&bn, b1, b2);
+    
+    BBPunfix(b1->batCacheid);
+    BBPunfix(b2->batCacheid);
+    
+    if (ret != GDK_SUCCEED)
+        throw(MAL, "batcalc.cdot", GDK_EXCEPTION);
+    
+    if (bn) {
+        *res = bn->batCacheid;
+        BBPkeepref(bn);
+    } else {
+        *res = bat_nil;
+    }
+    return MAL_SUCCEED;
+}
+
 #include "mel.h"
 
 static str
@@ -2074,18 +2105,15 @@ batcalc_init(void)
 	// err += melFunction(false, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, "Compute dot product of two string vectors", 1, 3, dot_ret, dot_arg, dot_arg);
 	// err += melFunction(false, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, "Compute dot product with candidate lists", 1, 5, dot_ret, dot_arg, dot_arg, cand, cand);
 	mel_func_arg arg_dbl_bat  = { .type = TYPE_dbl,  .isbat = 1 };
-    mel_func_arg arg_blob_bat = { .type = TYPE_blob, .isbat = 1 };
-    mel_func_arg arg_str_bat  = { .type = TYPE_str,  .isbat = 1 };
-    err += melFunction(true, "batcalc", "str_to_vec", (MALfcn)&CMDbatSTR2VEC, "CMDbatSTR2VEC", false, 
-                       "Convert string vector to binary blob", 
-                       1, 2, arg_blob_bat, arg_str_bat);
-	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, 
-                       "Compute dot product of two blob vectors", 
-                       1, 3, arg_dbl_bat, arg_blob_bat, arg_blob_bat);
-	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT_auto, "CMDbatDOT_auto", false, 
-                       "Compute dot product of two string vectors (auto-convert)", 
-                       1, 3, arg_dbl_bat, arg_str_bat, arg_str_bat);
-
+	mel_func_arg arg_blob_bat = { .type = TYPE_blob, .isbat = 1 };
+	mel_func_arg arg_str_bat  = { .type = TYPE_str,  .isbat = 1 };
+	err += melFunction(true, "batcalc", "str_to_vec", (MALfcn)&CMDbatSTR2VEC, "CMDbatSTR2VEC", false, "Convert string vector to binary blob", 1, 2, arg_blob_bat, arg_str_bat);
+	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, "Compute dot product of two blob vectors", 1, 3, arg_dbl_bat, arg_blob_bat, arg_blob_bat);
+	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT_auto, "CMDbatDOT_auto", false, "Compute dot product of two string vectors (auto-convert)", 1, 3, arg_dbl_bat, arg_str_bat, arg_str_bat);
+	
+	/* compression similarity join*/
+	// mel_func_arg arg_int     = { .type = TYPE_int,  .isbat = 0 };
+	err += melFunction(true, "batcalc", "cdot", (MALfcn)&CMDbatCDOT, "CMDbatCDOT", false, "Compressed dot product with PCA reduction", 1, 3, arg_dbl_bat, arg_str_bat, arg_str_bat);
 	return MAL_SUCCEED;
 }
 

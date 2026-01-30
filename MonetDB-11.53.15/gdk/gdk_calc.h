@@ -175,3 +175,6 @@ gdk_export gdk_return GDKanalytical_str_group_concat(BAT *r, BAT *p, BAT *o, BAT
 gdk_export gdk_return BATcalcstr2vec(BAT **res, const BAT *b);
 gdk_export gdk_return BATcalcblobsdot(BAT **res, const BAT *b1, const BAT *b2);
 
+// compression similarity join
+gdk_export gdk_return BATcalccdot(BAT **res, const BAT *b1, const BAT *b2);
+

@@ -657,7 +657,6 @@ scanner_init_keywords(void)
 	failed += keywords_insert("dot", DOT);
 	failed += keywords_insert("cdot", CDOT);
 
-
 	return failed;
 }
 
