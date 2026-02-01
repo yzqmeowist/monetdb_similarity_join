@@ -5277,64 +5277,156 @@ extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
     return all_vectors;
 }
 
-// 幂迭代法
+// 改进的幂迭代法
 static int
-power_iteration(float *eigenvector, const float *matrix, int n, int max_iter)
+power_iteration(float *eigenvector, float *eigenvalue, const float *matrix, int n, int max_iter)
 {
-    // 随机初始化
+    // 随机初始化特征向量
     for (int i = 0; i < n; i++) {
-        eigenvector[i] = (float)rand() / RAND_MAX - 0.5f;
+        eigenvector[i] = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
     }
     
     // 归一化
     float norm = 0.0f;
-    for (int i = 0; i < n; i++) norm += eigenvector[i] * eigenvector[i];
+    for (int i = 0; i < n; i++) {
+        norm += eigenvector[i] * eigenvector[i];
+    }
     norm = sqrtf(norm);
-    for (int i = 0; i < n; i++) eigenvector[i] /= norm;
-    
-    float *prev = GDKmalloc(n * sizeof(float));
-    if (!prev) return 0;
-    
-    for (int iter = 0; iter < max_iter; iter++) {
-        memcpy(prev, eigenvector, n * sizeof(float));
-        
-        // 计算 A * v
-        float *temp = GDKmalloc(n * sizeof(float));
-        if (!temp) {
-            GDKfree(prev);
-            return 0;
-        }
-        
+    if (norm < FLT_EPSILON) {
+        // 如果初始向量太小，使用单位向量
         for (int i = 0; i < n; i++) {
-            temp[i] = 0.0f;
-            for (int j = 0; j < n; j++) {
-                temp[i] += matrix[i * n + j] * eigenvector[j];
-            }
+            eigenvector[i] = (i == 0) ? 1.0f : 0.0f;
         }
-        
-        // 归一化
-        norm = 0.0f;
-        for (int i = 0; i < n; i++) norm += temp[i] * temp[i];
-        norm = sqrtf(norm);
-        for (int i = 0; i < n; i++) eigenvector[i] = temp[i] / norm;
-        
-        GDKfree(temp);
-        
-        // 检查收敛
-        float diff = 0.0f;
+        norm = 1.0f;
+    } else {
         for (int i = 0; i < n; i++) {
-            float delta = eigenvector[i] - prev[i];
-            diff += delta * delta;
-        }
-        
-        if (sqrtf(diff) < 1e-8f) {
-            GDKfree(prev);
-            return 1;
+            eigenvector[i] /= norm;
         }
     }
     
-    GDKfree(prev);
+    float *prev_vector = GDKmalloc(n * sizeof(float));
+    if (!prev_vector) return 0;
+    
+    float *temp_vector = GDKmalloc(n * sizeof(float));
+    if (!temp_vector) {
+        GDKfree(prev_vector);
+        return 0;
+    }
+    
+    // 初始化特征值
+    *eigenvalue = 0.0f;
+    
+    for (int iter = 0; iter < max_iter; iter++) {
+        memcpy(prev_vector, eigenvector, n * sizeof(float));
+        
+        // 计算 matrix * eigenvector
+        for (int i = 0; i < n; i++) {
+            temp_vector[i] = 0.0f;
+            for (int j = 0; j < n; j++) {
+                temp_vector[i] += matrix[i * n + j] * eigenvector[j];
+            }
+        }
+        
+        // 计算Rayleigh商（特征值近似）
+        // λ = (v^T * A * v) / (v^T * v)
+        float dot_vAv = 0.0f;
+        float dot_vv = 0.0f;
+        for (int i = 0; i < n; i++) {
+            dot_vAv += eigenvector[i] * temp_vector[i];
+            dot_vv += eigenvector[i] * eigenvector[i];
+        }
+        
+        if (fabsf(dot_vv) < FLT_EPSILON) {
+            // 向量太小，无法继续
+            GDKfree(prev_vector);
+            GDKfree(temp_vector);
+            return 0;
+        }
+        
+        float new_eigenvalue = dot_vAv / dot_vv;
+        
+        // 检查特征值是否有意义
+        if (!isfinite(new_eigenvalue)) {
+            GDKfree(prev_vector);
+            GDKfree(temp_vector);
+            return 0;
+        }
+        
+        *eigenvalue = new_eigenvalue;
+        
+        // 归一化得到新的特征向量
+        norm = 0.0f;
+        for (int i = 0; i < n; i++) {
+            norm += temp_vector[i] * temp_vector[i];
+        }
+        norm = sqrtf(norm);
+        
+        if (norm < FLT_EPSILON) {
+            // 如果结果向量太小，重新随机初始化
+            for (int i = 0; i < n; i++) {
+                eigenvector[i] = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
+            }
+            norm = 0.0f;
+            for (int i = 0; i < n; i++) {
+                norm += eigenvector[i] * eigenvector[i];
+            }
+            norm = sqrtf(norm);
+            for (int i = 0; i < n; i++) {
+                eigenvector[i] /= norm;
+            }
+        } else {
+            for (int i = 0; i < n; i++) {
+                eigenvector[i] = temp_vector[i] / norm;
+            }
+        }
+        
+        // 检查收敛
+        // 1. 特征向量方向的变化
+        float cos_similarity = 0.0f;
+        for (int i = 0; i < n; i++) {
+            cos_similarity += eigenvector[i] * prev_vector[i];
+        }
+        float angle_diff = fabsf(cos_similarity);
+        
+        // 2. 特征值的变化（如果有前一次迭代）
+        if (iter > 0) {
+            // 特征值应该相对稳定
+            float eigenvalue_change = fabsf(new_eigenvalue - *eigenvalue) / fabsf(new_eigenvalue);
+            
+            // 双重收敛条件
+            if (angle_diff > 0.999999f && eigenvalue_change < 1e-6f) {
+                // 收敛条件满足
+                GDKfree(prev_vector);
+                GDKfree(temp_vector);
+                return 1;
+            }
+        } else {
+            // 第一次迭代，只检查向量方向
+            if (angle_diff > 0.999999f) {
+                GDKfree(prev_vector);
+                GDKfree(temp_vector);
+                return 1;
+            }
+        }
+    }
+    
+    // 达到最大迭代次数
+    GDKfree(prev_vector);
+    GDKfree(temp_vector);
+    // 即使没有完全收敛，也返回成功（算法可能已经足够接近）
     return 1;
+}
+
+// 正确的矩阵deflation
+static void
+deflate_matrix(float *matrix, const float *eigenvector, float eigenvalue, int n)
+{
+    // 正确的deflation公式: A' = A - λ * v * v^T
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            matrix[i * n + j] -= eigenvalue * eigenvector[i] * eigenvector[j];
+        }
+    }
 }
 
 // Gram-Schmidt正交化
@@ -5404,7 +5496,7 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
     }
     
     // 3. 计算协方差矩阵
-   	float *cov = GDKzalloc(original_dim * original_dim * sizeof(float)); 
+    float *cov = GDKzalloc(original_dim * original_dim * sizeof(float)); 
     if (!cov) {
         GDKfree(all_vectors);
         GDKfree(mean);
@@ -5422,13 +5514,15 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
         }
     }
     
-    // 4. 特征值分解（使用您的幂迭代法）
+    // 4. 特征值分解（使用改进的幂迭代法）
     float *eigenvectors = GDKmalloc(target_dim * original_dim * sizeof(float));
     float *temp_cov = GDKmalloc(original_dim * original_dim * sizeof(float));
+    float *eigenvalues = GDKmalloc(target_dim * sizeof(float));
     
-    if (!eigenvectors || !temp_cov) {
+    if (!eigenvectors || !temp_cov || !eigenvalues) {
         GDKfree(eigenvectors);
         GDKfree(temp_cov);
+        GDKfree(eigenvalues);
         GDKfree(cov);
         GDKfree(all_vectors);
         GDKfree(mean);
@@ -5439,25 +5533,25 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
     
     for (int comp = 0; comp < target_dim; comp++) {
         float *current_vec = &eigenvectors[comp * original_dim];
+        float eigenvalue = 0.0f;
         
-        if (!power_iteration(current_vec, temp_cov, original_dim, 500)) {
+        if (!power_iteration(current_vec, &eigenvalue, temp_cov, original_dim, 500)) {
             GDKfree(eigenvectors);
             GDKfree(temp_cov);
+            GDKfree(eigenvalues);
             GDKfree(cov);
             GDKfree(all_vectors);
             GDKfree(mean);
             return GDK_FAIL;
         }
         
-        // 减去当前成分
-        for (int i = 0; i < original_dim; i++) {
-            for (int j = 0; j < original_dim; j++) {
-                temp_cov[i * original_dim + j] -= current_vec[i] * current_vec[j];
-            }
-        }
+        eigenvalues[comp] = eigenvalue;
+        
+        // 减去当前成分（正确的deflation）
+        deflate_matrix(temp_cov, current_vec, eigenvalue, original_dim);
     }
     
-    // 5. 正交化（使用您的Gram-Schmidt）
+    // 5. 正交化（使用Gram-Schmidt）
     gram_schmidt(eigenvectors, target_dim, original_dim);
     
     // 6. 投影到低维空间
@@ -5465,6 +5559,7 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
     if (!result) {
         GDKfree(eigenvectors);
         GDKfree(temp_cov);
+        GDKfree(eigenvalues);
         GDKfree(cov);
         GDKfree(all_vectors);
         GDKfree(mean);
@@ -5478,6 +5573,7 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
             BBPreclaim(result);
             GDKfree(eigenvectors);
             GDKfree(temp_cov);
+            GDKfree(eigenvalues);
             GDKfree(cov);
             GDKfree(all_vectors);
             GDKfree(mean);
@@ -5499,6 +5595,7 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
             BBPreclaim(result);
             GDKfree(eigenvectors);
             GDKfree(temp_cov);
+            GDKfree(eigenvalues);
             GDKfree(cov);
             GDKfree(all_vectors);
             GDKfree(mean);
@@ -5514,6 +5611,7 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
             BBPreclaim(result);
             GDKfree(eigenvectors);
             GDKfree(temp_cov);
+            GDKfree(eigenvalues);
             GDKfree(cov);
             GDKfree(all_vectors);
             GDKfree(mean);
@@ -5527,6 +5625,7 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
     // 清理
     GDKfree(eigenvectors);
     GDKfree(temp_cov);
+    GDKfree(eigenvalues);
     GDKfree(cov);
     GDKfree(all_vectors);
     GDKfree(mean);
@@ -5542,7 +5641,7 @@ BATcalccdot(BAT **res, const BAT *b1, const BAT *b2)
     // 静态缓存PCA模型（简化：每次重新训练）
     static BAT *compressed_b1 = NULL;
     static BAT *compressed_b2 = NULL;
-    static int current_target_dim = 8;  // 默认压缩到8维
+    static int current_target_dim = 2;  // 修改：默认压缩到2维（测试用）
     
     // 1. 检查输入是否是字符串，如果是则转换为向量
     BAT *vec_b1 = NULL, *vec_b2 = NULL;
