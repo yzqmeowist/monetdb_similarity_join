@@ -1432,11 +1432,10 @@ CMDbatDOT_auto(bat *res, const bat *bid1, const bat *bid2)
     return MAL_SUCCEED;
 }
 
-// cdot wrapper function
 static str
 CMDbatCDOT(bat *res, const bat *bid1, const bat *bid2)
 {
-    BAT *b1, *b2, *bn = NULL;
+    BAT *b1 = NULL, *b2 = NULL, *bn = NULL;
     
     if ((b1 = BATdescriptor(*bid1)) == NULL)
         throw(MAL, "batcalc.cdot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
@@ -1463,6 +1462,44 @@ CMDbatCDOT(bat *res, const bat *bid1, const bat *bid2)
     return MAL_SUCCEED;
 }
 
+// PCA训练包装函数
+static str
+CMDbatPCA(bat *res, const bat *vectors, const int *target_dim)
+{
+    BAT *vectors_bat = NULL, *compressed = NULL;
+    
+    if ((vectors_bat = BATdescriptor(*vectors)) == NULL)
+        throw(MAL, "batcalcpca", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    
+    // 检查输入类型，如果是字符串则转换为向量
+    BAT *vec_bat = NULL;
+    if (ATOMstorage(vectors_bat->ttype) == TYPE_str) {
+        if (BATcalcstr2vec(&vec_bat, vectors_bat) != GDK_SUCCEED) {
+            BBPunfix(vectors_bat->batCacheid);
+            throw(MAL, "batcalcpca", "Failed to convert string to vector");
+        }
+    } else {
+        vec_bat = vectors_bat;
+    }
+    
+    gdk_return ret = BATcalcpca(&compressed, vec_bat, *target_dim);
+    
+    if (vec_bat != vectors_bat) {
+        BBPreclaim(vec_bat);
+    }
+    BBPunfix(vectors_bat->batCacheid);
+    
+    if (ret != GDK_SUCCEED)
+        throw(MAL, "batcalcpca", GDK_EXCEPTION);
+    
+    if (compressed) {
+        *res = compressed->batCacheid;
+        BBPkeepref(compressed);
+    } else {
+        *res = bat_nil;
+    }
+    return MAL_SUCCEED;
+}
 #include "mel.h"
 
 static str
@@ -2112,8 +2149,11 @@ batcalc_init(void)
 	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT_auto, "CMDbatDOT_auto", false, "Compute dot product of two string vectors (auto-convert)", 1, 3, arg_dbl_bat, arg_str_bat, arg_str_bat);
 	
 	/* compression similarity join*/
-	// mel_func_arg arg_int     = { .type = TYPE_int,  .isbat = 0 };
+	mel_func_arg arg_int = { .type = TYPE_int, .isbat = 0 };
+	// mel_func_arg arg_int_bat = { .type = TYPE_int, .isbat = 1 };
+
 	err += melFunction(true, "batcalc", "cdot", (MALfcn)&CMDbatCDOT, "CMDbatCDOT", false, "Compressed dot product with PCA reduction", 1, 3, arg_dbl_bat, arg_str_bat, arg_str_bat);
+	err += melFunction(true, "batcalc", "pca", (MALfcn)&CMDbatPCA, "CMDbatPCA", false,"Train PCA and compress vectors", 1, 3, arg_blob_bat, arg_str_bat, arg_int);
 	return MAL_SUCCEED;
 }
 

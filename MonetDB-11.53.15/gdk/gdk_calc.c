@@ -5122,100 +5122,468 @@ fail:
     return GDK_FAIL;
 }
 
-gdk_return
-BATcalccdot(BAT **res, const BAT *b1, const BAT *b2)
-{
-    BAT *bn = NULL;
-    BUN i, count;
-    BATiter bi1, bi2;
-    int target_dim = 8;
+// gdk_return
+// BATcalccdot(BAT **res, const BAT *b1, const BAT *b2)
+// {
+//     BAT *bn = NULL;
+//     BUN i, count;
+//     BATiter bi1, bi2;
+//     int target_dim = 8;
     
-    if (BATcount(b1) != BATcount(b2)) {
-        GDKerror("BATcalccdot: BATs must have same length\n");
+//     if (BATcount(b1) != BATcount(b2)) {
+//         GDKerror("BATcalccdot: BATs must have same length\n");
+//         return GDK_FAIL;
+//     }
+    
+//     count = BATcount(b1);
+//     bn = COLnew(b1->hseqbase, TYPE_dbl, count, TRANSIENT);
+//     if (bn == NULL) return GDK_FAIL;
+    
+//     bi1 = bat_iterator(b1);
+//     bi2 = bat_iterator(b2);
+    
+//     for (i = 0; i < count; i++) {
+//         const char *s1 = (const char *) BUNtvar(bi1, i);
+//         const char *s2 = (const char *) BUNtvar(bi2, i);
+        
+//         if (strNil(s1) || strNil(s2)) {
+//             double nil = dbl_nil;
+//             if (BUNappend(bn, &nil, false) != GDK_SUCCEED) goto fail;
+//             continue;
+//         }
+        
+//         int len1, len2;
+//         blob *bvec1 = str_to_blob_vector(s1, &len1);
+//         blob *bvec2 = str_to_blob_vector(s2, &len2);
+        
+//         if (!bvec1 || !bvec2) {
+//             double nil = dbl_nil;
+//             if (BUNappend(bn, &nil, false) != GDK_SUCCEED) {
+//                 if (bvec1) GDKfree(bvec1);
+//                 if (bvec2) GDKfree(bvec2);
+//                 goto fail;
+//             }
+//             if (bvec1) GDKfree(bvec1);
+//             if (bvec2) GDKfree(bvec2);
+//             continue;
+//         }
+        
+//         float *orig1 = (float *)bvec1->data;
+//         float *orig2 = (float *)bvec2->data;
+//         int dim1 = (int)(bvec1->nitems / sizeof(float));
+//         int dim2 = (int)(bvec2->nitems / sizeof(float));
+        
+//         // 随机投影降维
+//         srand(42 + i); 
+        
+//         double dot_result = 0.0;
+//         for (int j = 0; j < target_dim; j++) {
+//             float proj1 = 0.0, proj2 = 0.0;
+            
+//             // 对第一个向量投影
+//             for (int k = 0; k < dim1; k++) {
+//                 float weight = ((float)rand() / RAND_MAX) * 2.0 - 1.0;
+//                 proj1 += orig1[k] * weight;
+//             }
+//             proj1 /= sqrtf(dim1);
+            
+//             // 对第二个向量投影
+//             srand(42 + i + j * 1000); 
+//             for (int k = 0; k < dim2; k++) {
+//                 float weight = ((float)rand() / RAND_MAX) * 2.0 - 1.0;
+//                 proj2 += orig2[k] * weight;
+//             }
+//             proj2 /= sqrtf(dim2);
+            
+//             dot_result += (double)proj1 * (double)proj2;
+//         }
+        
+//         if (BUNappend(bn, &dot_result, false) != GDK_SUCCEED) {
+//             GDKfree(bvec1);
+//             GDKfree(bvec2);
+//             goto fail;
+//         }
+        
+//         GDKfree(bvec1);
+//         GDKfree(bvec2);
+//     }
+    
+//     *res = bn;
+//     bat_iterator_end(&bi1);
+//     bat_iterator_end(&bi2);
+//     return GDK_SUCCEED;
+    
+// fail:
+//     bat_iterator_end(&bi1);
+//     bat_iterator_end(&bi2);
+//     if (bn) BBPreclaim(bn);
+//     return GDK_FAIL;
+// }
+
+#include "gdk_calc.h"
+#include <math.h>
+#include <float.h>
+#include <string.h>
+
+
+// 提取向量数据
+static float *
+extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
+{
+    BATiter bi = bat_iterator((BAT*)vectors);
+    BUN count = BATcount(vectors);
+    
+    // 确定维度
+    int dim = -1;
+    BUN valid_count = 0;
+    
+    for (BUN i = 0; i < count; i++) {
+        const blob *b = (const blob *) BUNtvar(bi, i);
+        if (!is_blob_nil(b)) {
+            int current_dim = (int)(b->nitems / sizeof(float));
+            if (dim == -1) dim = current_dim;
+            if (current_dim == dim) valid_count++;
+        }
+    }
+    
+    if (dim <= 0 || valid_count == 0) {
+        bat_iterator_end(&bi);
+        return NULL;
+    }
+    
+    // 提取数据
+    float *all_vectors = GDKmalloc(valid_count * dim * sizeof(float));
+    if (!all_vectors) {
+        bat_iterator_end(&bi);
+        return NULL;
+    }
+    
+    BUN idx = 0;
+    for (BUN i = 0; i < count; i++) {
+        const blob *b = (const blob *) BUNtvar(bi, i);
+        if (!is_blob_nil(b)) {
+            int current_dim = (int)(b->nitems / sizeof(float));
+            if (current_dim == dim) {
+                float *vec = (float *)b->data;
+                memcpy(&all_vectors[idx * dim], vec, dim * sizeof(float));
+                idx++;
+            }
+        }
+    }
+    
+    bat_iterator_end(&bi);
+    *out_dim = dim;
+    *out_count = valid_count;
+    return all_vectors;
+}
+
+// 幂迭代法
+static int
+power_iteration(float *eigenvector, const float *matrix, int n, int max_iter)
+{
+    // 随机初始化
+    for (int i = 0; i < n; i++) {
+        eigenvector[i] = (float)rand() / RAND_MAX - 0.5f;
+    }
+    
+    // 归一化
+    float norm = 0.0f;
+    for (int i = 0; i < n; i++) norm += eigenvector[i] * eigenvector[i];
+    norm = sqrtf(norm);
+    for (int i = 0; i < n; i++) eigenvector[i] /= norm;
+    
+    float *prev = GDKmalloc(n * sizeof(float));
+    if (!prev) return 0;
+    
+    for (int iter = 0; iter < max_iter; iter++) {
+        memcpy(prev, eigenvector, n * sizeof(float));
+        
+        // 计算 A * v
+        float *temp = GDKmalloc(n * sizeof(float));
+        if (!temp) {
+            GDKfree(prev);
+            return 0;
+        }
+        
+        for (int i = 0; i < n; i++) {
+            temp[i] = 0.0f;
+            for (int j = 0; j < n; j++) {
+                temp[i] += matrix[i * n + j] * eigenvector[j];
+            }
+        }
+        
+        // 归一化
+        norm = 0.0f;
+        for (int i = 0; i < n; i++) norm += temp[i] * temp[i];
+        norm = sqrtf(norm);
+        for (int i = 0; i < n; i++) eigenvector[i] = temp[i] / norm;
+        
+        GDKfree(temp);
+        
+        // 检查收敛
+        float diff = 0.0f;
+        for (int i = 0; i < n; i++) {
+            float delta = eigenvector[i] - prev[i];
+            diff += delta * delta;
+        }
+        
+        if (sqrtf(diff) < 1e-8f) {
+            GDKfree(prev);
+            return 1;
+        }
+    }
+    
+    GDKfree(prev);
+    return 1;
+}
+
+// Gram-Schmidt正交化
+static void
+gram_schmidt(float *vectors, int num_vectors, int dim)
+{
+    for (int i = 0; i < num_vectors; i++) {
+        float *vi = &vectors[i * dim];
+        
+        // 与之前向量正交化
+        for (int j = 0; j < i; j++) {
+            float *vj = &vectors[j * dim];
+            float dot = 0.0f;
+            for (int k = 0; k < dim; k++) dot += vi[k] * vj[k];
+            for (int k = 0; k < dim; k++) vi[k] -= dot * vj[k];
+        }
+        
+        // 归一化
+        float norm = 0.0f;
+        for (int k = 0; k < dim; k++) norm += vi[k] * vi[k];
+        norm = sqrtf(norm);
+        if (norm > FLT_EPSILON) {
+            for (int k = 0; k < dim; k++) vi[k] /= norm;
+        }
+    }
+}
+
+// 完整的PCA训练和压缩
+gdk_return
+BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
+{
+    int original_dim;
+    BUN sample_count;
+    float *all_vectors = extract_vectors_from_bat(vectors, &original_dim, &sample_count);
+    
+    if (!all_vectors || sample_count < 2) {
+        if (all_vectors) GDKfree(all_vectors);
+        GDKerror("BATcalcpca: Not enough valid vectors\n");
         return GDK_FAIL;
     }
     
-    count = BATcount(b1);
-    bn = COLnew(b1->hseqbase, TYPE_dbl, count, TRANSIENT);
-    if (bn == NULL) return GDK_FAIL;
-    
-    bi1 = bat_iterator(b1);
-    bi2 = bat_iterator(b2);
-    
-    for (i = 0; i < count; i++) {
-        const char *s1 = (const char *) BUNtvar(bi1, i);
-        const char *s2 = (const char *) BUNtvar(bi2, i);
-        
-        if (strNil(s1) || strNil(s2)) {
-            double nil = dbl_nil;
-            if (BUNappend(bn, &nil, false) != GDK_SUCCEED) goto fail;
-            continue;
-        }
-        
-        int len1, len2;
-        blob *bvec1 = str_to_blob_vector(s1, &len1);
-        blob *bvec2 = str_to_blob_vector(s2, &len2);
-        
-        if (!bvec1 || !bvec2) {
-            double nil = dbl_nil;
-            if (BUNappend(bn, &nil, false) != GDK_SUCCEED) {
-                if (bvec1) GDKfree(bvec1);
-                if (bvec2) GDKfree(bvec2);
-                goto fail;
-            }
-            if (bvec1) GDKfree(bvec1);
-            if (bvec2) GDKfree(bvec2);
-            continue;
-        }
-        
-        float *orig1 = (float *)bvec1->data;
-        float *orig2 = (float *)bvec2->data;
-        int dim1 = (int)(bvec1->nitems / sizeof(float));
-        int dim2 = (int)(bvec2->nitems / sizeof(float));
-        
-        // 随机投影降维
-        srand(42 + i); 
-        
-        double dot_result = 0.0;
-        for (int j = 0; j < target_dim; j++) {
-            float proj1 = 0.0, proj2 = 0.0;
-            
-            // 对第一个向量投影
-            for (int k = 0; k < dim1; k++) {
-                float weight = ((float)rand() / RAND_MAX) * 2.0 - 1.0;
-                proj1 += orig1[k] * weight;
-            }
-            proj1 /= sqrtf(dim1);
-            
-            // 对第二个向量投影
-            srand(42 + i + j * 1000); 
-            for (int k = 0; k < dim2; k++) {
-                float weight = ((float)rand() / RAND_MAX) * 2.0 - 1.0;
-                proj2 += orig2[k] * weight;
-            }
-            proj2 /= sqrtf(dim2);
-            
-            dot_result += (double)proj1 * (double)proj2;
-        }
-        
-        if (BUNappend(bn, &dot_result, false) != GDK_SUCCEED) {
-            GDKfree(bvec1);
-            GDKfree(bvec2);
-            goto fail;
-        }
-        
-        GDKfree(bvec1);
-        GDKfree(bvec2);
+    if (target_dim <= 0 || target_dim > original_dim) {
+        GDKfree(all_vectors);
+        GDKerror("BATcalcpca: Invalid target dimension\n");
+        return GDK_FAIL;
     }
     
-    *res = bn;
-    bat_iterator_end(&bi1);
-    bat_iterator_end(&bi2);
-    return GDK_SUCCEED;
+    // 1. 计算均值
+    float *mean = GDKzalloc(original_dim * sizeof(float));
+    if (!mean) {
+        GDKfree(all_vectors);
+        return GDK_FAIL;
+    }
     
-fail:
-    bat_iterator_end(&bi1);
-    bat_iterator_end(&bi2);
-    if (bn) BBPreclaim(bn);
-    return GDK_FAIL;
+    for (BUN i = 0; i < sample_count; i++) {
+        for (int j = 0; j < original_dim; j++) {
+            mean[j] += all_vectors[i * original_dim + j];
+        }
+    }
+    for (int j = 0; j < original_dim; j++) mean[j] /= sample_count;
+    
+    // 2. 中心化
+    for (BUN i = 0; i < sample_count; i++) {
+        for (int j = 0; j < original_dim; j++) {
+            all_vectors[i * original_dim + j] -= mean[j];
+        }
+    }
+    
+    // 3. 计算协方差矩阵
+   	float *cov = GDKzalloc(original_dim * original_dim * sizeof(float)); 
+    if (!cov) {
+        GDKfree(all_vectors);
+        GDKfree(mean);
+        return GDK_FAIL;
+    }
+    
+    for (int i = 0; i < original_dim; i++) {
+        for (int j = i; j < original_dim; j++) {
+            float sum = 0.0f;
+            for (BUN k = 0; k < sample_count; k++) {
+                sum += all_vectors[k * original_dim + i] * all_vectors[k * original_dim + j];
+            }
+            cov[i * original_dim + j] = sum / (sample_count - 1);
+            cov[j * original_dim + i] = cov[i * original_dim + j];
+        }
+    }
+    
+    // 4. 特征值分解（使用您的幂迭代法）
+    float *eigenvectors = GDKmalloc(target_dim * original_dim * sizeof(float));
+    float *temp_cov = GDKmalloc(original_dim * original_dim * sizeof(float));
+    
+    if (!eigenvectors || !temp_cov) {
+        GDKfree(eigenvectors);
+        GDKfree(temp_cov);
+        GDKfree(cov);
+        GDKfree(all_vectors);
+        GDKfree(mean);
+        return GDK_FAIL;
+    }
+    
+    memcpy(temp_cov, cov, original_dim * original_dim * sizeof(float));
+    
+    for (int comp = 0; comp < target_dim; comp++) {
+        float *current_vec = &eigenvectors[comp * original_dim];
+        
+        if (!power_iteration(current_vec, temp_cov, original_dim, 500)) {
+            GDKfree(eigenvectors);
+            GDKfree(temp_cov);
+            GDKfree(cov);
+            GDKfree(all_vectors);
+            GDKfree(mean);
+            return GDK_FAIL;
+        }
+        
+        // 减去当前成分
+        for (int i = 0; i < original_dim; i++) {
+            for (int j = 0; j < original_dim; j++) {
+                temp_cov[i * original_dim + j] -= current_vec[i] * current_vec[j];
+            }
+        }
+    }
+    
+    // 5. 正交化（使用您的Gram-Schmidt）
+    gram_schmidt(eigenvectors, target_dim, original_dim);
+    
+    // 6. 投影到低维空间
+    BAT *result = COLnew(0, TYPE_blob, sample_count, TRANSIENT);
+    if (!result) {
+        GDKfree(eigenvectors);
+        GDKfree(temp_cov);
+        GDKfree(cov);
+        GDKfree(all_vectors);
+        GDKfree(mean);
+        return GDK_FAIL;
+    }
+    
+    for (BUN i = 0; i < sample_count; i++) {
+        // 投影计算
+        float *compressed_vec = GDKmalloc(target_dim * sizeof(float));
+        if (!compressed_vec) {
+            BBPreclaim(result);
+            GDKfree(eigenvectors);
+            GDKfree(temp_cov);
+            GDKfree(cov);
+            GDKfree(all_vectors);
+            GDKfree(mean);
+            return GDK_FAIL;
+        }
+        
+        for (int j = 0; j < target_dim; j++) {
+            compressed_vec[j] = 0.0f;
+            for (int k = 0; k < original_dim; k++) {
+                compressed_vec[j] += all_vectors[i * original_dim + k] * eigenvectors[j * original_dim + k];
+            }
+        }
+        
+        // 创建blob
+        size_t blob_size = sizeof(blob) + target_dim * sizeof(float);
+        blob *b = GDKmalloc(blob_size);
+        if (!b) {
+            GDKfree(compressed_vec);
+            BBPreclaim(result);
+            GDKfree(eigenvectors);
+            GDKfree(temp_cov);
+            GDKfree(cov);
+            GDKfree(all_vectors);
+            GDKfree(mean);
+            return GDK_FAIL;
+        }
+        
+        b->nitems = target_dim * sizeof(float);
+        memcpy(b->data, compressed_vec, target_dim * sizeof(float));
+        
+        if (BUNappend(result, b, false) != GDK_SUCCEED) {
+            GDKfree(b);
+            GDKfree(compressed_vec);
+            BBPreclaim(result);
+            GDKfree(eigenvectors);
+            GDKfree(temp_cov);
+            GDKfree(cov);
+            GDKfree(all_vectors);
+            GDKfree(mean);
+            return GDK_FAIL;
+        }
+        
+        GDKfree(b);
+        GDKfree(compressed_vec);
+    }
+    
+    // 清理
+    GDKfree(eigenvectors);
+    GDKfree(temp_cov);
+    GDKfree(cov);
+    GDKfree(all_vectors);
+    GDKfree(mean);
+    
+    *compressed = result;
+    return GDK_SUCCEED;
+}
+
+// ========== 压缩点乘主函数 ==========
+gdk_return
+BATcalccdot(BAT **res, const BAT *b1, const BAT *b2)
+{
+    // 静态缓存PCA模型（简化：每次重新训练）
+    static BAT *compressed_b1 = NULL;
+    static BAT *compressed_b2 = NULL;
+    static int current_target_dim = 8;  // 默认压缩到8维
+    
+    // 1. 检查输入是否是字符串，如果是则转换为向量
+    BAT *vec_b1 = NULL, *vec_b2 = NULL;
+    
+    if (ATOMstorage(b1->ttype) == TYPE_str) {
+        if (BATcalcstr2vec(&vec_b1, b1) != GDK_SUCCEED) {
+            GDKerror("BATcalccdot: Failed to convert string to vector (b1)\n");
+            return GDK_FAIL;
+        }
+    } else {
+        vec_b1 = (BAT*)b1;
+    }
+    
+    if (ATOMstorage(b2->ttype) == TYPE_str) {
+        if (BATcalcstr2vec(&vec_b2, b2) != GDK_SUCCEED) {
+            if (ATOMstorage(b1->ttype) == TYPE_str) BBPreclaim(vec_b1);
+            GDKerror("BATcalccdot: Failed to convert string to vector (b2)\n");
+            return GDK_FAIL;
+        }
+    } else {
+        vec_b2 = (BAT*)b2;
+    }
+    
+    // 2. 使用PCA压缩
+    if (compressed_b1) BBPreclaim(compressed_b1);
+    if (compressed_b2) BBPreclaim(compressed_b2);
+    
+    if (BATcalcpca(&compressed_b1, vec_b1, current_target_dim) != GDK_SUCCEED ||
+        BATcalcpca(&compressed_b2, vec_b2, current_target_dim) != GDK_SUCCEED) {
+        if (ATOMstorage(b1->ttype) == TYPE_str) BBPreclaim(vec_b1);
+        if (ATOMstorage(b2->ttype) == TYPE_str) BBPreclaim(vec_b2);
+        GDKerror("BATcalccdot: PCA compression failed\n");
+        return GDK_FAIL;
+    }
+    
+    // 3. 调用已有的dot函数计算压缩后的点乘
+    gdk_return ret = BATcalcblobsdot(res, compressed_b1, compressed_b2);
+    
+    // 4. 清理
+    if (ATOMstorage(b1->ttype) == TYPE_str) BBPreclaim(vec_b1);
+    if (ATOMstorage(b2->ttype) == TYPE_str) BBPreclaim(vec_b2);
+    
+    return ret;
 }
