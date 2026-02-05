@@ -5381,14 +5381,14 @@ power_iteration(float *eigenvector, float *eigenvalue, const float *matrix, int 
         }
         
         // 检查收敛
-        // 1. 特征向量方向的变化
+        // 特征向量方向的变化
         float cos_similarity = 0.0f;
         for (int i = 0; i < n; i++) {
             cos_similarity += eigenvector[i] * prev_vector[i];
         }
         float angle_diff = fabsf(cos_similarity);
         
-        // 2. 特征值的变化（如果有前一次迭代）
+        // 特征值的变化（如果有前一次迭代）
         if (iter > 0) {
             // 特征值应该相对稳定
             float eigenvalue_change = fabsf(new_eigenvalue - *eigenvalue) / fabsf(new_eigenvalue);
@@ -5474,7 +5474,7 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
         return GDK_FAIL;
     }
     
-    // 1. 计算均值
+    // 计算均值
     float *mean = GDKzalloc(original_dim * sizeof(float));
     if (!mean) {
         GDKfree(all_vectors);
@@ -5488,14 +5488,14 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
     }
     for (int j = 0; j < original_dim; j++) mean[j] /= sample_count;
     
-    // 2. 中心化
+    // 中心化
     for (BUN i = 0; i < sample_count; i++) {
         for (int j = 0; j < original_dim; j++) {
             all_vectors[i * original_dim + j] -= mean[j];
         }
     }
     
-    // 3. 计算协方差矩阵
+    // 协方差矩阵
     float *cov = GDKzalloc(original_dim * original_dim * sizeof(float)); 
     if (!cov) {
         GDKfree(all_vectors);
@@ -5514,7 +5514,7 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
         }
     }
     
-    // 4. 特征值分解（使用改进的幂迭代法）
+    // 特征值分解，使用改进的幂迭代法
     float *eigenvectors = GDKmalloc(target_dim * original_dim * sizeof(float));
     float *temp_cov = GDKmalloc(original_dim * original_dim * sizeof(float));
     float *eigenvalues = GDKmalloc(target_dim * sizeof(float));
@@ -5551,10 +5551,10 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
         deflate_matrix(temp_cov, current_vec, eigenvalue, original_dim);
     }
     
-    // 5. 正交化（使用Gram-Schmidt）
+    // 使用Gram-Schmidt, 使用正交化
     gram_schmidt(eigenvectors, target_dim, original_dim);
     
-    // 6. 投影到低维空间
+    // 投影到低维空间
     BAT *result = COLnew(0, TYPE_blob, sample_count, TRANSIENT);
     if (!result) {
         GDKfree(eigenvectors);
@@ -5634,16 +5634,14 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim)
     return GDK_SUCCEED;
 }
 
-// ========== 压缩点乘主函数 ==========
 gdk_return
 BATcalccdot(BAT **res, const BAT *b1, const BAT *b2)
 {
-    // 静态缓存PCA模型（简化：每次重新训练）
+    // 静态缓存PCA模型,每次重新训练
     static BAT *compressed_b1 = NULL;
     static BAT *compressed_b2 = NULL;
-    static int current_target_dim = 2;  // 修改：默认压缩到2维（测试用）
+    static int current_target_dim = 8;  // 默认压缩到8维（测试用）
     
-    // 1. 检查输入是否是字符串，如果是则转换为向量
     BAT *vec_b1 = NULL, *vec_b2 = NULL;
     
     if (ATOMstorage(b1->ttype) == TYPE_str) {
@@ -5665,7 +5663,7 @@ BATcalccdot(BAT **res, const BAT *b1, const BAT *b2)
         vec_b2 = (BAT*)b2;
     }
     
-    // 2. 使用PCA压缩
+    // 使用PCA压缩
     if (compressed_b1) BBPreclaim(compressed_b1);
     if (compressed_b2) BBPreclaim(compressed_b2);
     
@@ -5677,10 +5675,8 @@ BATcalccdot(BAT **res, const BAT *b1, const BAT *b2)
         return GDK_FAIL;
     }
     
-    // 3. 调用已有的dot函数计算压缩后的点乘
     gdk_return ret = BATcalcblobsdot(res, compressed_b1, compressed_b2);
     
-    // 4. 清理
     if (ATOMstorage(b1->ttype) == TYPE_str) BBPreclaim(vec_b1);
     if (ATOMstorage(b2->ttype) == TYPE_str) BBPreclaim(vec_b2);
     
