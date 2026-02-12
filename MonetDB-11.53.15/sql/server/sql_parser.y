@@ -7483,6 +7483,7 @@ char *token2string(tokens token)
 	SQL(DROP_TYPE);
 	SQL(DROP_USER);
 	SQL(DROP_VIEW);
+	SQL(DOT);
 	SQL(ELSE);
 	SQL(ESCAPE);
 	SQL(EXCEPT);
