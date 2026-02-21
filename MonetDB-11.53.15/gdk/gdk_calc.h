@@ -177,4 +177,4 @@ gdk_export gdk_return BATcalcblobsdot(BAT **res, const BAT *b1, const BAT *b2);
 
 // compression similarity join 
 gdk_export gdk_return BATcalccdot(BAT **res, const BAT *b1, const BAT *b2);
-gdk_export gdk_return BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim);
+gdk_export gdk_return BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim, bool auto_select);

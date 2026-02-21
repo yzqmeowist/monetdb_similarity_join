@@ -1481,8 +1481,14 @@ CMDbatPCA(bat *res, const bat *vectors, const int *target_dim)
     } else {
         vec_bat = vectors_bat;
     }
-    
-    gdk_return ret = BATcalcpca(&compressed, vec_bat, *target_dim);
+
+    gdk_return ret;
+
+    if (*target_dim == 0) {
+        ret = BATcalcpca(&compressed, vec_bat, 0, true);  // 自动选择维度
+    } else {
+        ret = BATcalcpca(&compressed, vec_bat, *target_dim, false);  // 使用指定维度
+    }
     
     if (vec_bat != vectors_bat) {
         BBPreclaim(vec_bat);

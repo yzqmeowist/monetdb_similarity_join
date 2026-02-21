@@ -118,10 +118,10 @@
 #     ('m218', '[1.0, 0.5, 0.3, 0.1, -0.2, -0.4, 0.6, 0.7, 0.2, -0.1, 0.3]'),
 #     ('m219', '[0.8, 0.3, 0.4, 0.2, -0.3, -0.5, 0.7, 0.8, 0.1, -0.2, 0.2]');
 
-# SELECT * FROM uw;`
-# SELECT * FROM mw;
-# SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 5;
-# SELECT U,M FROM uw, mw WHERE dot(F,G) > 3;
+# # SELECT * FROM uw;
+# # SELECT * FROM mw;
+# # SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 5;
+# # SELECT U,M FROM uw, mw WHERE dot(F,G) > 3;
 # SELECT * FROM uw2;
 # SELECT * FROM mw2;
 # SELECT M FROM uw2, mw2 WHERE U='u21' ORDER BY dot(F,G) DESC LIMIT 8;
@@ -135,7 +135,7 @@
 # echo "    export DOTMONETDBFILE=\"$AUTH_FILE\""
 # echo "    export PATH=\"$BIN_DIR:\$PATH\""
 # echo "    mclient -d $DB_NAME"
-#!/bin/bash
+# !/bin/bash
 set -e
 
 ROOT_DIR=$(pwd)
@@ -206,9 +206,8 @@ CREATE TABLE mw (M VARCHAR(10), G VARCHAR(2000));
 COPY INTO uw FROM '$ROOT_DIR/ml-latest-small/uw.csv' USING DELIMITERS ',', '\n', '"';
 COPY INTO mw FROM '$ROOT_DIR/ml-latest-small/mw.csv' USING DELIMITERS ',', '\n', '"';
 
-SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 20;
-SELECT M FROM uw, mw WHERE U='u2' ORDER BY cdot(F,G) DESC LIMIT 20;
-# SELECT U,M FROM uw, mw WHERE dot(F,G) > 3;
+SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 10;
+SELECT M FROM uw, mw WHERE U='u2' ORDER BY cdot(F,G) DESC LIMIT 10;
 
 EOF
 
