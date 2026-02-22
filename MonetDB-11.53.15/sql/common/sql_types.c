@@ -1742,12 +1742,9 @@ sqltypeinit( allocator *sa)
 	sql_create_func(sa, "dot", "batcalc", "dot", FALSE, FALSE, SCALE_NONE, 0, DBL, 2, BLOB, BLOB);
 	sql_create_func(sa, "dot", "batcalc", "dot", FALSE, FALSE, SCALE_NONE, 0, DBL, 2, STR, STR);
 
-	/* compression similarity join */
-	sql_create_func(sa, "cdot", "batcalc", "cdot", FALSE, FALSE, SCALE_NONE, 0, DBL, 2, STR, STR);
-	sql_create_func(sa, "cdot", "batcalc", "cdot", FALSE, FALSE, SCALE_NONE, 0, DBL, 2, BLOB, BLOB);
-
-	sql_create_func(sa, "pca", "batcalc", "pca", FALSE, FALSE, SCALE_NONE, 0, BLOB, 2, BLOB, INT);
-	sql_create_func(sa, "pca", "batcalc", "pca", FALSE, FALSE, SCALE_NONE, 0, BLOB, 2, STR, INT);
+	/* compression similarity join, pca*/
+	sql_create_func(sa, "pca_train", "batcalc", "pca_train", FALSE, FALSE, SCALE_NONE, 0, BLOB, 2, BLOB, INT);
+	sql_create_func(sa, "pca_train", "batcalc", "pca_train", FALSE, FALSE, SCALE_NONE, 0, BLOB, 2, STR, INT);
 }
 
 void

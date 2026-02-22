@@ -63,6 +63,7 @@ target_sources(sqlserver
   rel_dump.c
   rel_file_loader.c
   rel_proto_loader.c
+  rel_pca.c         
   rel_dump.h rel_exp.h rel_rel.h
   rel_basetable.h
   rel_rewriter.h

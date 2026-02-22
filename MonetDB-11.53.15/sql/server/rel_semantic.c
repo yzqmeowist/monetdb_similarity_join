@@ -20,6 +20,7 @@
 #include "rel_schema.h"
 #include "rel_psm.h"
 #include "rel_sequence.h"
+#include "rel_pca.h"
 
 #include <unistd.h>
 #include <string.h>
@@ -224,6 +225,10 @@ rel_semantic(sql_query *query, symbol *s)
 		return r;
 	}
 
+	//compression similarity join PCA
+	case SQL_PCA_TRAIN:  /* pca_train(uw.F, 16) INTO user_model */
+		return rel_pca_train(query, s);
+	
 	case SQL_SELECT:
 	case SQL_JOIN:
 	case SQL_UNION:

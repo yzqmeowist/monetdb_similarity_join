@@ -1432,51 +1432,21 @@ CMDbatDOT_auto(bat *res, const bat *bid1, const bat *bid2)
     return MAL_SUCCEED;
 }
 
-static str
-CMDbatCDOT(bat *res, const bat *bid1, const bat *bid2)
-{
-    BAT *b1 = NULL, *b2 = NULL, *bn = NULL;
-    
-    if ((b1 = BATdescriptor(*bid1)) == NULL)
-        throw(MAL, "batcalc.cdot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
-    
-    if ((b2 = BATdescriptor(*bid2)) == NULL) {
-        BBPunfix(b1->batCacheid);
-        throw(MAL, "batcalc.cdot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
-    }
-    
-    gdk_return ret = BATcalccdot(&bn, b1, b2);
-    
-    BBPunfix(b1->batCacheid);
-    BBPunfix(b2->batCacheid);
-    
-    if (ret != GDK_SUCCEED)
-        throw(MAL, "batcalc.cdot", GDK_EXCEPTION);
-    
-    if (bn) {
-        *res = bn->batCacheid;
-        BBPkeepref(bn);
-    } else {
-        *res = bat_nil;
-    }
-    return MAL_SUCCEED;
-}
-
 // PCA训练包装函数
 static str
-CMDbatPCA(bat *res, const bat *vectors, const int *target_dim)
+CMDbatPCATRAIN(bat *res, const bat *vectors, const int *target_dim)
 {
     BAT *vectors_bat = NULL, *compressed = NULL;
     
     if ((vectors_bat = BATdescriptor(*vectors)) == NULL)
-        throw(MAL, "batcalcpca", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+        throw(MAL, "batcalcpcatrain", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
     
     // 检查输入类型，如果是字符串则转换为向量
     BAT *vec_bat = NULL;
     if (ATOMstorage(vectors_bat->ttype) == TYPE_str) {
         if (BATcalcstr2vec(&vec_bat, vectors_bat) != GDK_SUCCEED) {
             BBPunfix(vectors_bat->batCacheid);
-            throw(MAL, "batcalcpca", "Failed to convert string to vector");
+            throw(MAL, "batcalcpcatrain", "Failed to convert string to vector");
         }
     } else {
         vec_bat = vectors_bat;
@@ -1484,11 +1454,8 @@ CMDbatPCA(bat *res, const bat *vectors, const int *target_dim)
 
     gdk_return ret;
 
-    if (*target_dim == 0) {
-        ret = BATcalcpca(&compressed, vec_bat, 0, true);  // 自动选择维度
-    } else {
-        ret = BATcalcpca(&compressed, vec_bat, *target_dim, false);  // 使用指定维度
-    }
+  
+    ret = BATcalcpcatrain(&compressed, vec_bat, *target_dim, false);  // 使用指定维度
     
     if (vec_bat != vectors_bat) {
         BBPreclaim(vec_bat);
@@ -1496,7 +1463,7 @@ CMDbatPCA(bat *res, const bat *vectors, const int *target_dim)
     BBPunfix(vectors_bat->batCacheid);
     
     if (ret != GDK_SUCCEED)
-        throw(MAL, "batcalcpca", GDK_EXCEPTION);
+        throw(MAL, "batcalcpcatrain", GDK_EXCEPTION);
     
     if (compressed) {
         *res = compressed->batCacheid;
@@ -2157,9 +2124,7 @@ batcalc_init(void)
 	/* compression similarity join*/
 	mel_func_arg arg_int = { .type = TYPE_int, .isbat = 0 };
 	// mel_func_arg arg_int_bat = { .type = TYPE_int, .isbat = 1 };
-
-	err += melFunction(true, "batcalc", "cdot", (MALfcn)&CMDbatCDOT, "CMDbatCDOT", false, "Compressed dot product with PCA reduction", 1, 3, arg_dbl_bat, arg_str_bat, arg_str_bat);
-	err += melFunction(true, "batcalc", "pca", (MALfcn)&CMDbatPCA, "CMDbatPCA", false,"Train PCA and compress vectors", 1, 3, arg_blob_bat, arg_str_bat, arg_int);
+	err += melFunction(true, "batcalc", "pca_train", (MALfcn)&CMDbatPCATRAIN, "CMDbatPCATRAIN", false,"Train PCA and store a model", 1, 3, arg_blob_bat, arg_str_bat, arg_int);
 	return MAL_SUCCEED;
 }
 

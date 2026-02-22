@@ -5558,7 +5558,7 @@ gram_schmidt(float *vectors, int num_vectors, int dim)
 
 // 完整的PCA训练和压缩，支持自动选择维度
 gdk_return
-BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim, bool auto_select)
+BATcalcpcatrain(BAT **compressed, const BAT *vectors, int target_dim, bool auto_select)
 {
     int original_dim;
     BUN sample_count;
@@ -6108,262 +6108,262 @@ BATcalcpca(BAT **compressed, const BAT *vectors, int target_dim, bool auto_selec
 //     return ret;
 // }
 
-gdk_return
-BATcalccdot(BAT **res, const BAT *b1, const BAT *b2)
-{
-    BAT *vec_b1 = NULL, *vec_b2 = NULL;
-    BAT *pca_b2 = NULL;
-    BAT *pca_b1_replicated = NULL;
-    gdk_return ret = GDK_FAIL;
+// gdk_return
+// BATcalcpcatrain(BAT **res, const BAT *b1, const BAT *b2)
+// {
+//     BAT *vec_b1 = NULL, *vec_b2 = NULL;
+//     BAT *pca_b2 = NULL;
+//     BAT *pca_b1_replicated = NULL;
+//     gdk_return ret = GDK_FAIL;
     
-    fprintf(stderr, "\n========== CDOT DEBUG ==========\n");
-    fprintf(stderr, "[CDOT] b1: batid=%d, type=%d, rows=%llu\n", 
-            b1->batCacheid, b1->ttype, (unsigned long long)BATcount(b1));
-    fprintf(stderr, "[CDOT] b2: batid=%d, type=%d, rows=%llu\n", 
-            b2->batCacheid, b2->ttype, (unsigned long long)BATcount(b2));
+//     fprintf(stderr, "\n========== CDOT DEBUG ==========\n");
+//     fprintf(stderr, "[CDOT] b1: batid=%d, type=%d, rows=%llu\n", 
+//             b1->batCacheid, b1->ttype, (unsigned long long)BATcount(b1));
+//     fprintf(stderr, "[CDOT] b2: batid=%d, type=%d, rows=%llu\n", 
+//             b2->batCacheid, b2->ttype, (unsigned long long)BATcount(b2));
     
-    // 1. 字符串转BLOB向量
-    if (ATOMstorage(b1->ttype) == TYPE_str) {
-        fprintf(stderr, "[CDOT] Converting b1 from string to vector\n");
-        if (BATcalcstr2vec(&vec_b1, b1) != GDK_SUCCEED) return GDK_FAIL;
-        fprintf(stderr, "[CDOT] b1 converted, rows=%llu\n", 
-                (unsigned long long)BATcount(vec_b1));
-    } else {
-        vec_b1 = (BAT*)b1;
-    }
+//     // 1. 字符串转BLOB向量
+//     if (ATOMstorage(b1->ttype) == TYPE_str) {
+//         fprintf(stderr, "[CDOT] Converting b1 from string to vector\n");
+//         if (BATcalcstr2vec(&vec_b1, b1) != GDK_SUCCEED) return GDK_FAIL;
+//         fprintf(stderr, "[CDOT] b1 converted, rows=%llu\n", 
+//                 (unsigned long long)BATcount(vec_b1));
+//     } else {
+//         vec_b1 = (BAT*)b1;
+//     }
     
-    if (ATOMstorage(b2->ttype) == TYPE_str) {
-        fprintf(stderr, "[CDOT] Converting b2 from string to vector\n");
-        if (BATcalcstr2vec(&vec_b2, b2) != GDK_SUCCEED) {
-            if (ATOMstorage(b1->ttype) == TYPE_str) BBPreclaim(vec_b1);
-            return GDK_FAIL;
-        }
-        fprintf(stderr, "[CDOT] b2 converted, rows=%llu\n", 
-                (unsigned long long)BATcount(vec_b2));
-    } else {
-        vec_b2 = (BAT*)b2;
-    }
+//     if (ATOMstorage(b2->ttype) == TYPE_str) {
+//         fprintf(stderr, "[CDOT] Converting b2 from string to vector\n");
+//         if (BATcalcstr2vec(&vec_b2, b2) != GDK_SUCCEED) {
+//             if (ATOMstorage(b1->ttype) == TYPE_str) BBPreclaim(vec_b1);
+//             return GDK_FAIL;
+//         }
+//         fprintf(stderr, "[CDOT] b2 converted, rows=%llu\n", 
+//                 (unsigned long long)BATcount(vec_b2));
+//     } else {
+//         vec_b2 = (BAT*)b2;
+//     }
     
-    // 2. 获取维度信息
-    int dim1 = 0, dim2 = 0;
-    BUN count1 = BATcount(vec_b1);
-    BUN count2 = BATcount(vec_b2);
+//     // 2. 获取维度信息
+//     int dim1 = 0, dim2 = 0;
+//     BUN count1 = BATcount(vec_b1);
+//     BUN count2 = BATcount(vec_b2);
     
-    BATiter bi1 = bat_iterator(vec_b1);
-    for (BUN i = 0; i < count1; i++) {
-        const blob *b = (const blob *) BUNtvar(bi1, i);
-        if (!is_blob_nil(b)) {
-            dim1 = (int)(b->nitems / sizeof(float));
-            break;
-        }
-    }
-    bat_iterator_end(&bi1);
+//     BATiter bi1 = bat_iterator(vec_b1);
+//     for (BUN i = 0; i < count1; i++) {
+//         const blob *b = (const blob *) BUNtvar(bi1, i);
+//         if (!is_blob_nil(b)) {
+//             dim1 = (int)(b->nitems / sizeof(float));
+//             break;
+//         }
+//     }
+//     bat_iterator_end(&bi1);
     
-    BATiter bi2 = bat_iterator(vec_b2);
-    for (BUN i = 0; i < count2; i++) {
-        const blob *b = (const blob *) BUNtvar(bi2, i);
-        if (!is_blob_nil(b)) {
-            dim2 = (int)(b->nitems / sizeof(float));
-            break;
-        }
-    }
-    bat_iterator_end(&bi2);
+//     BATiter bi2 = bat_iterator(vec_b2);
+//     for (BUN i = 0; i < count2; i++) {
+//         const blob *b = (const blob *) BUNtvar(bi2, i);
+//         if (!is_blob_nil(b)) {
+//             dim2 = (int)(b->nitems / sizeof(float));
+//             break;
+//         }
+//     }
+//     bat_iterator_end(&bi2);
     
-    fprintf(stderr, "[CDOT] Vector info - b1: %llu rows, %d dims; b2: %llu rows, %d dims\n",
-            (unsigned long long)count1, dim1, (unsigned long long)count2, dim2);
+//     fprintf(stderr, "[CDOT] Vector info - b1: %llu rows, %d dims; b2: %llu rows, %d dims\n",
+//             (unsigned long long)count1, dim1, (unsigned long long)count2, dim2);
     
-    // 3. 检查b1是否所有向量都相同（单用户查询场景）
-    int all_identical = 0;
-    const blob *single_user_blob = NULL;
+//     // 3. 检查b1是否所有向量都相同（单用户查询场景）
+//     int all_identical = 0;
+//     const blob *single_user_blob = NULL;
     
-    if (count1 > 0) {
-        BATiter bi1 = bat_iterator(vec_b1);
-        const blob *first = (const blob *) BUNtvar(bi1, 0);
+//     if (count1 > 0) {
+//         BATiter bi1 = bat_iterator(vec_b1);
+//         const blob *first = (const blob *) BUNtvar(bi1, 0);
         
-        if (!is_blob_nil(first)) {
-            all_identical = 1;
-            single_user_blob = first;
+//         if (!is_blob_nil(first)) {
+//             all_identical = 1;
+//             single_user_blob = first;
             
-            for (BUN i = 1; i < MIN(count1, 10); i++) {
-                const blob *curr = (const blob *) BUNtvar(bi1, i);
-                if (is_blob_nil(curr)) {
-                    all_identical = 0;
-                    single_user_blob = NULL;
-                    break;
-                }
-                if (first->nitems != curr->nitems || 
-                    memcmp(first->data, curr->data, first->nitems) != 0) {
-                    all_identical = 0;
-                    single_user_blob = NULL;
-                    break;
-                }
-            }
-        }
-        bat_iterator_end(&bi1);
-    }
+//             for (BUN i = 1; i < MIN(count1, 10); i++) {
+//                 const blob *curr = (const blob *) BUNtvar(bi1, i);
+//                 if (is_blob_nil(curr)) {
+//                     all_identical = 0;
+//                     single_user_blob = NULL;
+//                     break;
+//                 }
+//                 if (first->nitems != curr->nitems || 
+//                     memcmp(first->data, curr->data, first->nitems) != 0) {
+//                     all_identical = 0;
+//                     single_user_blob = NULL;
+//                     break;
+//                 }
+//             }
+//         }
+//         bat_iterator_end(&bi1);
+//     }
     
-    // 4. 处理单用户查询场景（WHERE U='u1' 或 'u2'）
-    if (all_identical) {
-        fprintf(stderr, "[CDOT] Detected single user query - using original b1, PCA on b2 only\n");
+//     // 4. 处理单用户查询场景（WHERE U='u1' 或 'u2'）
+//     if (all_identical) {
+//         fprintf(stderr, "[CDOT] Detected single user query - using original b1, PCA on b2 only\n");
         
-        // 4.1 只对b2做PCA，自动选择维度
-        fprintf(stderr, "[CDOT] Starting PCA compression for b2...\n");
-        if (BATcalcpca(&pca_b2, vec_b2, 0, true) != GDK_SUCCEED) {
-            fprintf(stderr, "[CDOT] PCA compression FAILED for b2, falling back to original dot\n");
-            ret = BATcalcblobsdot(res, vec_b1, vec_b2);
-            goto cleanup;
-        }
-        fprintf(stderr, "[CDOT] PCA compression for b2 SUCCEEDED\n");
+//         // 4.1 只对b2做PCA，自动选择维度
+//         fprintf(stderr, "[CDOT] Starting PCA compression for b2...\n");
+//         if (BATcalcpca(&pca_b2, vec_b2, 0, true) != GDK_SUCCEED) {
+//             fprintf(stderr, "[CDOT] PCA compression FAILED for b2, falling back to original dot\n");
+//             ret = BATcalcblobsdot(res, vec_b1, vec_b2);
+//             goto cleanup;
+//         }
+//         fprintf(stderr, "[CDOT] PCA compression for b2 SUCCEEDED\n");
         
-        // 4.2 获取b2降维后的维度
-        int target_dim = 0;
-        BATiter pbi2 = bat_iterator(pca_b2);
-        for (BUN i = 0; i < BATcount(pca_b2); i++) {
-            const blob *b = (const blob *) BUNtvar(pbi2, i);
-            if (!is_blob_nil(b)) {
-                target_dim = (int)(b->nitems / sizeof(float));
-                break;
-            }
-        }
-        bat_iterator_end(&pbi2);
+//         // 4.2 获取b2降维后的维度
+//         int target_dim = 0;
+//         BATiter pbi2 = bat_iterator(pca_b2);
+//         for (BUN i = 0; i < BATcount(pca_b2); i++) {
+//             const blob *b = (const blob *) BUNtvar(pbi2, i);
+//             if (!is_blob_nil(b)) {
+//                 target_dim = (int)(b->nitems / sizeof(float));
+//                 break;
+//             }
+//         }
+//         bat_iterator_end(&pbi2);
         
-        fprintf(stderr, "[CDOT] b2 PCA auto-selected dimension = %d\n", target_dim);
+//         fprintf(stderr, "[CDOT] b2 PCA auto-selected dimension = %d\n", target_dim);
         
-        // 4.3 获取b1的第一个向量（单用户）
-        float *original_vec = (float *)single_user_blob->data;
-        int original_dim = (int)(single_user_blob->nitems / sizeof(float));
+//         // 4.3 获取b1的第一个向量（单用户）
+//         float *original_vec = (float *)single_user_blob->data;
+//         int original_dim = (int)(single_user_blob->nitems / sizeof(float));
         
-        fprintf(stderr, "[CDOT] Constructing %llu copies of b1 vector with %d dims (zero-padded)\n", 
-                (unsigned long long)count2, target_dim);
+//         fprintf(stderr, "[CDOT] Constructing %llu copies of b1 vector with %d dims (zero-padded)\n", 
+//                 (unsigned long long)count2, target_dim);
         
-        // 4.4 创建新的BAT，包含count2个副本，每个都是target_dim维
-				pca_b1_replicated = COLnew(0, TYPE_blob, count2, TRANSIENT);
-				if (!pca_b1_replicated) {
-						BBPreclaim(pca_b2);
-						ret = BATcalcblobsdot(res, vec_b1, vec_b2);
-						goto cleanup;
-				}
+//         // 4.4 创建新的BAT，包含count2个副本，每个都是target_dim维
+// 				pca_b1_replicated = COLnew(0, TYPE_blob, count2, TRANSIENT);
+// 				if (!pca_b1_replicated) {
+// 						BBPreclaim(pca_b2);
+// 						ret = BATcalcblobsdot(res, vec_b1, vec_b2);
+// 						goto cleanup;
+// 				}
 
-				for (BUN i = 0; i < count2; i++) {
-						// 分配内存
-						size_t blob_size = sizeof(blob) + target_dim * sizeof(float);
-						blob *new_blob = GDKmalloc(blob_size);
-						if (!new_blob) {
-								BBPreclaim(pca_b1_replicated);
-								BBPreclaim(pca_b2);
-								ret = BATcalcblobsdot(res, vec_b1, vec_b2);
-								goto cleanup;
-						}
+// 				for (BUN i = 0; i < count2; i++) {
+// 						// 分配内存
+// 						size_t blob_size = sizeof(blob) + target_dim * sizeof(float);
+// 						blob *new_blob = GDKmalloc(blob_size);
+// 						if (!new_blob) {
+// 								BBPreclaim(pca_b1_replicated);
+// 								BBPreclaim(pca_b2);
+// 								ret = BATcalcblobsdot(res, vec_b1, vec_b2);
+// 								goto cleanup;
+// 						}
 						
-						new_blob->nitems = target_dim * sizeof(float);
-						float *new_data = (float *)new_blob->data;
+// 						new_blob->nitems = target_dim * sizeof(float);
+// 						float *new_data = (float *)new_blob->data;
 						
-						if (target_dim >= original_dim) {
-								// 目标维度 >= 原始维度：复制全部，多余补0
-								memcpy(new_data, original_vec, original_dim * sizeof(float));
-								for (int j = original_dim; j < target_dim; j++) {
-										new_data[j] = 0.0f;
-								}
-						} else {
-								memcpy(new_data, original_vec, target_dim * sizeof(float));
-								// 不需要补0，已经复制了target_dim个float
-						}
+// 						if (target_dim >= original_dim) {
+// 								// 目标维度 >= 原始维度：复制全部，多余补0
+// 								memcpy(new_data, original_vec, original_dim * sizeof(float));
+// 								for (int j = original_dim; j < target_dim; j++) {
+// 										new_data[j] = 0.0f;
+// 								}
+// 						} else {
+// 								memcpy(new_data, original_vec, target_dim * sizeof(float));
+// 								// 不需要补0，已经复制了target_dim个float
+// 						}
 						
-						// BUNappend成功后会接管blob的所有权，不需要free
-						if (BUNappend(pca_b1_replicated, new_blob, false) != GDK_SUCCEED) {
-								GDKfree(new_blob);  // 只有append失败时才释放
-								BBPreclaim(pca_b1_replicated);
-								BBPreclaim(pca_b2);
-								ret = BATcalcblobsdot(res, vec_b1, vec_b2);
-								goto cleanup;
-						}
-				}
+// 						// BUNappend成功后会接管blob的所有权，不需要free
+// 						if (BUNappend(pca_b1_replicated, new_blob, false) != GDK_SUCCEED) {
+// 								GDKfree(new_blob);  // 只有append失败时才释放
+// 								BBPreclaim(pca_b1_replicated);
+// 								BBPreclaim(pca_b2);
+// 								ret = BATcalcblobsdot(res, vec_b1, vec_b2);
+// 								goto cleanup;
+// 						}
+// 				}
         
-        fprintf(stderr, "[CDOT] Successfully constructed b1 with %llu rows, %d dims\n",
-                (unsigned long long)BATcount(pca_b1_replicated), target_dim);
+//         fprintf(stderr, "[CDOT] Successfully constructed b1 with %llu rows, %d dims\n",
+//                 (unsigned long long)BATcount(pca_b1_replicated), target_dim);
         
-        // 4.5 现在b1和b2维度匹配，计算点积
-        ret = BATcalcblobsdot(res, pca_b1_replicated, pca_b2);
-        goto cleanup;
-    }
+//         // 4.5 现在b1和b2维度匹配，计算点积
+//         ret = BATcalcblobsdot(res, pca_b1_replicated, pca_b2);
+//         goto cleanup;
+//     }
     
-    // 5. 多用户查询场景（两个表都有足够的变化）
-    BAT *pca_b1 = NULL;
-    fprintf(stderr, "[CDOT] Multi-user query detected - applying PCA to both tables\n");
+//     // 5. 多用户查询场景（两个表都有足够的变化）
+//     BAT *pca_b1 = NULL;
+//     fprintf(stderr, "[CDOT] Multi-user query detected - applying PCA to both tables\n");
     
-    // 5.1 对b1做PCA
-    fprintf(stderr, "[CDOT] Starting PCA compression for b1...\n");
-    if (BATcalcpca(&pca_b1, vec_b1, 0, true) != GDK_SUCCEED) {
-        fprintf(stderr, "[CDOT] PCA compression FAILED for b1, falling back to original dot\n");
-        ret = BATcalcblobsdot(res, vec_b1, vec_b2);
-        goto cleanup;
-    }
-    fprintf(stderr, "[CDOT] PCA compression for b1 SUCCEEDED\n");
+//     // 5.1 对b1做PCA
+//     fprintf(stderr, "[CDOT] Starting PCA compression for b1...\n");
+//     if (BATcalcpca(&pca_b1, vec_b1, 0, true) != GDK_SUCCEED) {
+//         fprintf(stderr, "[CDOT] PCA compression FAILED for b1, falling back to original dot\n");
+//         ret = BATcalcblobsdot(res, vec_b1, vec_b2);
+//         goto cleanup;
+//     }
+//     fprintf(stderr, "[CDOT] PCA compression for b1 SUCCEEDED\n");
     
-    // 5.2 对b2做PCA
-    fprintf(stderr, "[CDOT] Starting PCA compression for b2...\n");
-    if (BATcalcpca(&pca_b2, vec_b2, 0, true) != GDK_SUCCEED) {
-        fprintf(stderr, "[CDOT] PCA compression FAILED for b2, falling back to original dot\n");
-        BBPreclaim(pca_b1);
-        ret = BATcalcblobsdot(res, vec_b1, vec_b2);
-        goto cleanup;
-    }
-    fprintf(stderr, "[CDOT] PCA compression for b2 SUCCEEDED\n");
+//     // 5.2 对b2做PCA
+//     fprintf(stderr, "[CDOT] Starting PCA compression for b2...\n");
+//     if (BATcalcpca(&pca_b2, vec_b2, 0, true) != GDK_SUCCEED) {
+//         fprintf(stderr, "[CDOT] PCA compression FAILED for b2, falling back to original dot\n");
+//         BBPreclaim(pca_b1);
+//         ret = BATcalcblobsdot(res, vec_b1, vec_b2);
+//         goto cleanup;
+//     }
+//     fprintf(stderr, "[CDOT] PCA compression for b2 SUCCEEDED\n");
     
-    // 6. 验证压缩后的维度
-    int pca_dim1 = 0, pca_dim2 = 0;
-    BATiter pbi1 = bat_iterator(pca_b1);
-    for (BUN i = 0; i < BATcount(pca_b1); i++) {
-        const blob *b = (const blob *) BUNtvar(pbi1, i);
-        if (!is_blob_nil(b)) {
-            pca_dim1 = (int)(b->nitems / sizeof(float));
-            break;
-        }
-    }
-    bat_iterator_end(&pbi1);
+//     // 6. 验证压缩后的维度
+//     int pca_dim1 = 0, pca_dim2 = 0;
+//     BATiter pbi1 = bat_iterator(pca_b1);
+//     for (BUN i = 0; i < BATcount(pca_b1); i++) {
+//         const blob *b = (const blob *) BUNtvar(pbi1, i);
+//         if (!is_blob_nil(b)) {
+//             pca_dim1 = (int)(b->nitems / sizeof(float));
+//             break;
+//         }
+//     }
+//     bat_iterator_end(&pbi1);
     
-    BATiter pbi2 = bat_iterator(pca_b2);
-    for (BUN i = 0; i < BATcount(pca_b2); i++) {
-        const blob *b = (const blob *) BUNtvar(pbi2, i);
-        if (!is_blob_nil(b)) {
-            pca_dim2 = (int)(b->nitems / sizeof(float));
-            break;
-        }
-    }
-    bat_iterator_end(&pbi2);
+//     BATiter pbi2 = bat_iterator(pca_b2);
+//     for (BUN i = 0; i < BATcount(pca_b2); i++) {
+//         const blob *b = (const blob *) BUNtvar(pbi2, i);
+//         if (!is_blob_nil(b)) {
+//             pca_dim2 = (int)(b->nitems / sizeof(float));
+//             break;
+//         }
+//     }
+//     bat_iterator_end(&pbi2);
     
-    fprintf(stderr, "[CDOT] After PCA - b1: %llu rows, %d dims; b2: %llu rows, %d dims\n",
-            (unsigned long long)BATcount(pca_b1), pca_dim1,
-            (unsigned long long)BATcount(pca_b2), pca_dim2);
+//     fprintf(stderr, "[CDOT] After PCA - b1: %llu rows, %d dims; b2: %llu rows, %d dims\n",
+//             (unsigned long long)BATcount(pca_b1), pca_dim1,
+//             (unsigned long long)BATcount(pca_b2), pca_dim2);
     
-    // 7. 检查维度是否匹配
-    if (pca_dim1 != pca_dim2) {
-        fprintf(stderr, "[CDOT] PCA dimension mismatch (%d vs %d), falling back to original dot\n", 
-                pca_dim1, pca_dim2);
-        BBPreclaim(pca_b1);
-        BBPreclaim(pca_b2);
-        ret = BATcalcblobsdot(res, vec_b1, vec_b2);
-        goto cleanup;
-    }
+//     // 7. 检查维度是否匹配
+//     if (pca_dim1 != pca_dim2) {
+//         fprintf(stderr, "[CDOT] PCA dimension mismatch (%d vs %d), falling back to original dot\n", 
+//                 pca_dim1, pca_dim2);
+//         BBPreclaim(pca_b1);
+//         BBPreclaim(pca_b2);
+//         ret = BATcalcblobsdot(res, vec_b1, vec_b2);
+//         goto cleanup;
+//     }
     
-    // 8. 计算点积
-    fprintf(stderr, "[CDOT] Computing dot product with PCA-compressed vectors (%d dims)\n", pca_dim1);
-    ret = BATcalcblobsdot(res, pca_b1, pca_b2);
+//     // 8. 计算点积
+//     fprintf(stderr, "[CDOT] Computing dot product with PCA-compressed vectors (%d dims)\n", pca_dim1);
+//     ret = BATcalcblobsdot(res, pca_b1, pca_b2);
     
-    if (ret == GDK_SUCCEED && *res) {
-        (*res)->hseqbase = 0;
-        fprintf(stderr, "[CDOT] Result BAT: %llu rows\n", 
-                (unsigned long long)BATcount(*res));
-    }
+//     if (ret == GDK_SUCCEED && *res) {
+//         (*res)->hseqbase = 0;
+//         fprintf(stderr, "[CDOT] Result BAT: %llu rows\n", 
+//                 (unsigned long long)BATcount(*res));
+//     }
 
-cleanup:
-    if (ATOMstorage(b1->ttype) == TYPE_str && vec_b1 && vec_b1 != (BAT*)b1) 
-        BBPreclaim(vec_b1);
-    if (ATOMstorage(b2->ttype) == TYPE_str && vec_b2 && vec_b2 != (BAT*)b2) 
-        BBPreclaim(vec_b2);
-    if (pca_b1_replicated) BBPreclaim(pca_b1_replicated);
-    if (pca_b2) BBPreclaim(pca_b2);
+// cleanup:
+//     if (ATOMstorage(b1->ttype) == TYPE_str && vec_b1 && vec_b1 != (BAT*)b1) 
+//         BBPreclaim(vec_b1);
+//     if (ATOMstorage(b2->ttype) == TYPE_str && vec_b2 && vec_b2 != (BAT*)b2) 
+//         BBPreclaim(vec_b2);
+//     if (pca_b1_replicated) BBPreclaim(pca_b1_replicated);
+//     if (pca_b2) BBPreclaim(pca_b2);
     
-    fprintf(stderr, "[CDOT] Done\n");
-    return ret;
-}
+//     fprintf(stderr, "[CDOT] Done\n");
+//     return ret;
+// }

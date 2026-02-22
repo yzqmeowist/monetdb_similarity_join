@@ -5280,21 +5280,38 @@ rel_value_exp2(sql_query *query, sql_rel **rel, symbol *se, int f, exp_kind ek)
 
 		return rel_binop_(sql, *rel, l_exp, r_exp, "sys", "dot", card_value, 0);
 	}
-	// compression similarity join
-	case SQL_CDOT: {
-    dlist *l = se->data.lval;
-    sql_exp *l_exp, *r_exp;
+	// // compression similarity join
+	// case SQL_PCA_APPLY: {
+  //   dlist *l = se->data.lval;
+  //   sql_exp *col_exp;
+  //   sql_exp *model_exp;
 
-    if (!(l_exp = rel_value_exp(query, rel, l->h->data.sym, f, ek)))
-        return NULL;
+  //   /* 解析参数：第一个是列，第二个是模型名 */
+  //   if (!(col_exp = rel_value_exp(query, rel, l->h->data.sym, f, ek)))
+  //       return NULL;
     
-    if (!(r_exp = rel_value_exp(query, rel, l->h->next->data.sym, f, ek)))
-        return NULL;
+  //   /* 第二个参数是模型名（标识符），需要特殊处理 */
+  //   /* 这里模型名应该是一个字符串常量，或者是一个标识符 */
+  //   symbol *model_sym = l->h->next->data.sym;
+    
+  //   /* 如果是字符串常量或标识符，创建对应的表达式 */
+  //   if (model_sym->token == SQL_STRING) {
+  //       model_exp = exp_atom(sql->sa, model_sym->data.sval);
+  //   } else if (model_sym->token == SQL_IDENT) {
+  //       /* 将标识符转换为字符串常量 */
+  //       model_exp = exp_atom(sql->sa, model_sym->data.sval);
+  //   } else {
+  //       /* 尝试作为表达式处理 */
+  //       if (!(model_exp = rel_value_exp(query, rel, model_sym, f, ek)))
+  //           return NULL;
+  //   }
 
-    return rel_binop_(sql, *rel, l_exp, r_exp, "sys", "cdot", card_value, 0);
-	}
+  //   /* 调用pca_apply函数，返回降维后的向量 */
+  //   return rel_binop_(sql, *rel, col_exp, model_exp, "sys", "pca_apply", card_value, 0);
+	// }
+
 	default:
-		return rel_logical_value_exp(query, rel, se, f, ek);
+			return rel_logical_value_exp(query, rel, se, f, ek);
 	}
 }
 

@@ -785,8 +785,9 @@ SQLCODE SQLERROR UNDER WHENEVER
 
 /* similarity join */
 %token <sval> DOT
- /* compression similarity join*/
-%token <sval> CDOT
+/* compression similarity join*/
+%token <sval> PCA_TRAIN
+/* %token <sval> PCA_APPLY */
 
 /* operators (highest precedence at the end) */
 %left OUTER_UNION UNION EXCEPT
@@ -4622,14 +4623,15 @@ scalar_exp:
 		  append_symbol(l, $5);
 		  
 		  $$ = symbol_create_list(m->sa, SQL_DOT, l); }
-	/* compression similarity join */
- |  CDOT '(' scalar_exp ',' scalar_exp ')'
-		{
-		  dlist *l = L();
-		  append_symbol(l, $3);    /* 左向量 */
-		  append_symbol(l, $5);    /* 右向量 */
-		  
-		  $$ = symbol_create_list(m->sa, SQL_CDOT, l); }
+	| PCA_TRAIN '(' scalar_exp ',' intval ')' INTO ident
+	{
+			dlist *l = L();
+			append_symbol(l, $3);        /* 列表达式：uw.F */
+			append_int(l, $5);            /* 目标维度*/
+			append_string(l, $8);          /* 模型名：user_model */
+			
+			$$ = symbol_create_list(m->sa, SQL_PCA_TRAIN, l);
+			/* 示例：pca_train(uw.F, 16) INTO user_model */}
 	|  DEFAULT { $$ = _symbol_create(SQL_DEFAULT, NULL ); }
 	;
 

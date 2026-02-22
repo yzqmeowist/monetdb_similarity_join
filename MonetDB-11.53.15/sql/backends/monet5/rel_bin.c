@@ -25,10 +25,18 @@
 #include "sql_gencode.h"
 #include "mal_builder.h"
 
+#include "sql_mvc.h"           /* 提供 mvc_bind_table, mvc_bind_column, cur_schema */
+#include "sql_statement.h"      /* 提供 stmt_bat_column, stmt_atom_int, stmt_direct_func */
+#include "sql_symbol.h"         /* 提供 L() 宏 */
+#include "sql_list.h"           /* 提供 append_int, append_string */
+#include "sql_catalog.h"        /* 提供 ddl 类型 */
+#include "rel_pca.h"            /* 添加这个 */
+
 static stmt * rel_bin(backend *be, sql_rel *rel);
 static stmt * subrel_bin(backend *be, sql_rel *rel, list *refs);
 
 static stmt *check_types(backend *be, sql_subtype *fromtype, stmt *s, check_type tpe);
+static stmt *rel2bin_pca_train(backend *be, sql_rel *rel, list *refs);
 
 static void
 clean_mal_statements(backend *be, int oldstop, int oldvtop)
@@ -7839,6 +7847,11 @@ rel2bin_ddl(backend *be, sql_rel *rel, list *refs)
 			s = rel2bin_catalog2(be, rel, refs);
 			sql->type = Q_SCHEMA;
 			break;
+		//compression similarity join, pca
+		case ddl_pca_train:
+			s = rel2bin_pca_train(be, rel, refs);
+			sql->type = Q_SCHEMA;
+			break;
 		default:
 			assert(0);
 	}
@@ -8007,4 +8020,63 @@ output_rel_bin(backend *be, sql_rel *rel, int top)
 		}
 	}
 	return s;
+}
+
+static stmt *
+rel2bin_pca_train(backend *be, sql_rel *rel, list *refs)
+{
+    mvc *sql = be->mvc;
+    
+    /* 从 rel->exps 读取信息 */
+    list *exps = rel->exps;
+    node *n = exps->h;
+    
+    /* 第一个：表名 */
+    sql_exp *tbl_exp = n->data;
+    char *tbl_name = ((atom*)tbl_exp->l)->data.val.sval;
+    n = n->next;
+    
+    /* 第二个：目标维度 */
+    sql_exp *dim_exp = n->data;
+    int target_dim = ((atom*)dim_exp->l)->data.val.ival;
+    n = n->next;
+    
+    /* 第三个：模型名 */
+    sql_exp *model_exp = n->data;
+    char *model_name = ((atom*)model_exp->l)->data.val.sval;
+    
+    list *l = sa_list(sql->sa);
+    
+    /* 1. 绑定表 */
+    sql_table *src_table = mvc_bind_table(sql, cur_schema(sql), tbl_name);
+    if (!src_table) {
+        return sql_error(sql, 02, SQLSTATE(42S02) "TABLE '%s' does not exist", tbl_name);
+    }
+    
+    /* 2. 创建tid语句（用于访问表） */
+    stmt *tid = stmt_tid(be, src_table, 0);
+    
+    /* 3. 获取第一列（实际应用中可能需要指定列名） */
+    node *col_node = ol_first_node(src_table->columns);
+    sql_column *src_col = col_node->data;
+    
+    /* ✅ 使用 stmt_col 访问列数据 */
+    stmt *col_stmt = stmt_col(be, src_col, tid, tid->partition);
+    
+    /* 4. 生成 MAL 指令: model := batcalc.pca_train(b1, target_dim, auto_select) */
+    int auto_select = (target_dim == 0) ? 1 : 0;
+    
+    InstrPtr q = newStmt(be->mb, "batcalc", "pca_train");
+    if (!q)
+        return sql_error(sql, 10, SQLSTATE(HY013) MAL_MALLOC_FAIL);
+    
+    q = pushArgument(be->mb, q, col_stmt->nr);
+    q = pushArgument(be->mb, q, stmt_atom_int(be, target_dim)->nr);
+    q = pushArgument(be->mb, q, stmt_atom_int(be, auto_select)->nr);
+    
+    stmt *model_stmt = stmt_direct_func(be, q);
+    
+    /* 5. 返回模型 */
+    append(l, model_stmt);
+    return stmt_list(be, l);
 }

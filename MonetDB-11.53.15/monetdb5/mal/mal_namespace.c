@@ -141,6 +141,7 @@ const char countRef[] = "count";
 const char create_functionRef[] = "create_function";
 const char create_roleRef[] = "create_role";
 const char create_schemaRef[] = "create_schema";
+//compression similarity join, pca
 const char create_seqRef[] = "create_seq";
 const char create_tableRef[] = "create_table";
 const char create_triggerRef[] = "create_trigger";
@@ -263,6 +264,8 @@ const char packIncrementRef[] = "packIncrement";
 const char packRef[] = "pack";
 const char parametersRef[] = "parameters";
 const char passRef[] = "pass";
+//compression similarity join, pca
+const char pca_trainRef[] = "pca_train";
 const char percent_rankRef[] = "percent_rank";
 const char plusRef[] = "+";
 const char predicateRef[] = "predicate";
@@ -530,6 +533,7 @@ initNamespace(void)
 	fixName(packRef);
 	fixName(parametersRef);
 	fixName(passRef);
+	fixName(pca_trainRef);
 	fixName(percent_rankRef);
 	fixName(plusRef);
 	fixName(predicateRef);

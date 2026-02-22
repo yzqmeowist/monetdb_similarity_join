@@ -149,7 +149,9 @@ typedef enum ddl_statement {
 	ddl_comment_on,
 	ddl_rename_schema,
 	ddl_rename_table,
-	ddl_rename_column
+	ddl_rename_column,
+	//compression similarity join, pca
+	ddl_pca_train
 } ddl_statement;
 
 typedef enum operator_type {
