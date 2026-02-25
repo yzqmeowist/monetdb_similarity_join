@@ -189,8 +189,6 @@ mal_export const char packIncrementRef[];
 mal_export const char packRef[];
 mal_export const char parametersRef[];
 mal_export const char passRef[];
-//compression similarity join, pca
-mal_export const char pca_trainRef[];
 mal_export const char percent_rankRef[];
 mal_export const char plusRef[];
 mal_export const char predicateRef[];

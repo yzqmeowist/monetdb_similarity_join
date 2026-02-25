@@ -206,8 +206,11 @@ CREATE TABLE mw (M VARCHAR(10), G VARCHAR(2000));
 COPY INTO uw FROM '$ROOT_DIR/ml-latest-small/uw.csv' USING DELIMITERS ',', '\n', '"';
 COPY INTO mw FROM '$ROOT_DIR/ml-latest-small/mw.csv' USING DELIMITERS ',', '\n', '"';
 
-SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 10;
-SELECT M FROM uw, mw WHERE U='u2' ORDER BY cdot(F,G) DESC LIMIT 10;
+CREATE TABLE user_model(R CLOB);
+pcatrain(uw, 16) INTO user_model;
+
+SELECT * FROM user_model;
+
 
 EOF
 

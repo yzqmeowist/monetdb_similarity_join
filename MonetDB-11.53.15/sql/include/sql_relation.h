@@ -150,8 +150,6 @@ typedef enum ddl_statement {
 	ddl_rename_schema,
 	ddl_rename_table,
 	ddl_rename_column,
-	//compression similarity join, pca
-	ddl_pca_train
 } ddl_statement;
 
 typedef enum operator_type {
@@ -177,7 +175,9 @@ typedef enum operator_type {
 	op_update,	/* update(l=table, r update expressions) */
 	op_delete,	/* delete(l=table, r delete expression) */
 	op_truncate, /* truncate(l=table) */
-	op_merge 	 /* IMPORTANT: keep op_merge last */
+	op_merge, 	 /* IMPORTANT: keep op_merge last */
+	//compression similarity join, pca
+	op_pcatrain
 } operator_type;
 
 #define is_atom(et) 		(et == e_atom)

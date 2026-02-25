@@ -226,8 +226,9 @@ rel_semantic(sql_query *query, symbol *s)
 	}
 
 	//compression similarity join PCA
-	case SQL_PCA_TRAIN:  /* pca_train(uw.F, 16) INTO user_model */
-		return rel_pca_train(query, s);
+	case SQL_PCATRAIN: 
+	 	fprintf(stderr, "[DEBUG] SQL_PCATRAIN token received in rel_semantic\n");
+		return rel_pcatrain(query, s);
 	
 	case SQL_SELECT:
 	case SQL_JOIN:

@@ -3190,8 +3190,6 @@ stmt_catalog(backend *be, int type, stmt *args)
 	case ddl_rename_schema:			ref = rename_schemaRef;		break;
 	case ddl_rename_table:			ref = rename_tableRef;		break;
 	case ddl_rename_column:			ref = rename_columnRef;		break;
-	//compression similarity join, pca
-	case ddl_pca_train:				ref = pca_trainRef;			break;
 	default:
 		TRC_ERROR(SQL_EXECUTION, "Unknown catalog operation\n");
 		goto bailout;

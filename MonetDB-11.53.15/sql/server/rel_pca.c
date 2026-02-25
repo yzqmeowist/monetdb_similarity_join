@@ -22,88 +22,71 @@
 #include "rel_exp.h"     /* 这个必须包含 */
 
 sql_rel *
-rel_pca_train(sql_query *query, symbol *s)
+rel_pcatrain(sql_query *query, symbol *s)
 {
-	mvc *sql = query->sql;
-	dlist *l = s->data.lval;
-	dnode *n = l->h;
-	
-	/* 解析参数：pca_train(表名, 维度) INTO 模型名 */
-	/* 第一个节点：表名表达式，如 uw */
-	symbol *tbl_sym = n->data.sym;
-	n = n->next;
-	
-	/* 第二个节点：目标维度 */
-	int target_dim = n->data.i_val;
-	n = n->next;
-	
-	/* 第三个节点：模型名 */
-	char *model_name = n->data.sval;
-	
-	char *tbl_name = NULL;
-	
-	/* 解析表名表达式 */
-	if (tbl_sym->token == SQL_IDENT) {
-		tbl_name = tbl_sym->data.sval;        /* 表名：uw */
-	} else if (tbl_sym->token == SQL_COLUMN) {
-		dlist *cl = tbl_sym->data.lval;
-		dnode *cn = cl->h;
-		tbl_name = cn->data.sval;              /* 表名：uw */
-	}
-	
-	/* 语义检查 */
-	
-	/* 1. 检查表是否存在 */
-	sql_table *t = NULL;
-	if (tbl_name) {
-		t = mvc_bind_table(sql, cur_schema(sql), tbl_name);
-		if (!t) {
-			return sql_error(sql, 02, SQLSTATE(42S02) 
-			                 "TABLE '%s' does not exist", tbl_name);
-		}
-	} else {
-		return sql_error(sql, 02, SQLSTATE(42000) 
-		                 "Table name required for PCA training");
-	}
-	
-	/* 2. 检查目标维度是否合法 */
-	if (target_dim < 0) {
-		return sql_error(sql, 02, SQLSTATE(42000) 
-		                 "Target dimension must be non-negative (0 for auto-select)");
-	}
-	if (target_dim == 0) {
-		/* 0表示自动选择维度，有效 */
-	} else if (target_dim < 2) {
-		return sql_error(sql, 02, SQLSTATE(42000) 
-		                 "Target dimension must be at least 2 or 0 for auto-select");
-	}
-	
-	/* 3. 检查模型名是否合法 */
-	if (!model_name || *model_name == '\0') {
-		return sql_error(sql, 02, SQLSTATE(42000) 
-		                 "Model name cannot be empty");
-	}
-	
-	/* 创建DDL关系表达式 */
-	sql_rel *ret = rel_create(sql->sa);
-	ret->op = op_ddl;
-	ret->flag = ddl_pca_train;
-	
-	/* 使用已有的 list 函数创建信息列表 */
-	list *info = new_exp_list(sql->sa);  /* 使用 new_exp_list 宏 */
-	
-	/* 创建表达式来存储信息 - 使用 rel_exp.h 中定义的函数 */
-	sql_exp *tbl_exp = exp_atom_str(sql->sa, tbl_name, NULL);  /* NULL 表示使用默认字符串类型 */
-	sql_exp *dim_exp = exp_atom_int(sql->sa, target_dim);      /* 这个存在 */
-	sql_exp *model_exp = exp_atom_str(sql->sa, model_name, NULL);
-	
-	/* 添加到列表 - 使用 append 宏 */
-	append(info, tbl_exp);
-	append(info, dim_exp);
-	append(info, model_exp);
-	
-	/* 存储在 exps 中 */
-	ret->exps = info;
-	
-	return ret;
+    mvc *sql = query->sql;
+    dlist *l = s->data.lval;
+    dnode *n = l->h;
+    
+    fprintf(stderr, "\n[DEBUG-SEMANTIC] 1. rel_pcatrain called\n");
+    
+    /* 解析 AST 参数 */
+    dlist *tbl_list = n->data.lval;
+    char *schema_name = NULL;
+    char *tbl_name = NULL;
+    
+    dnode *tn = tbl_list->h;
+    if (dlist_length(tbl_list) == 1) {
+        tbl_name = tn->data.sval;
+    } else if (dlist_length(tbl_list) == 2) {
+        schema_name = tn->data.sval;
+        tn = tn->next;
+        tbl_name = tn->data.sval;
+    }
+    
+    n = n->next;
+    int target_dim = n->data.i_val;
+    
+    n = n->next;
+    char *model_name = n->data.sval;
+
+    fprintf(stderr, "[DEBUG-SEMANTIC] 2. Parsed args: src='%s', dst='%s', dim=%d\n", tbl_name, model_name, target_dim);
+
+    /* 检查和绑定表信息 */
+    sql_schema *s_src = schema_name ? mvc_bind_schema(sql, schema_name) : cur_schema(sql);
+    if (schema_name && !s_src) 
+        return sql_error(sql, 02, SQLSTATE(3F000) "SCHEMA '%s' does not exist", schema_name);
+        
+    sql_table *src_t = mvc_bind_table(sql, s_src, tbl_name);
+    sql_table *dst_t = mvc_bind_table(sql, cur_schema(sql), model_name);
+
+    if (!src_t) return sql_error(sql, 02, SQLSTATE(42S02) "Source TABLE '%s' does not exist", tbl_name);
+    if (!dst_t) return sql_error(sql, 02, SQLSTATE(42S02) "Target TABLE '%s' does not exist", model_name);
+    if (target_dim < 2) return sql_error(sql, 02, SQLSTATE(42000) "Target dimension must be >= 2");
+
+    fprintf(stderr, "[DEBUG-SEMANTIC] 3. Tables bound. src_t=%p, dst_t=%p\n", (void*)src_t, (void*)dst_t);
+
+    /* 类型检查 */
+    sql_column *dst_col = ol_first_node(dst_t->columns)->data;
+    sql_subtype *model_type = sql_bind_localtype("str"); 
+    
+    if (subtype_cmp(&dst_col->type, model_type) != 0) {
+        return sql_error(sql, 02, SQLSTATE(42000) 
+            "Type Mismatch: Target column '%s' must be of type STRING/VARCHAR to store PCA model.", 
+            dst_col->base.name);
+    }
+
+    fprintf(stderr, "[DEBUG-SEMANTIC] 4. Type check passed. Building logic tree...\n");
+
+    /* 构建纯正的关系代数树 */
+    sql_rel *ret = rel_create(sql->sa);
+    ret->op = op_pcatrain; 
+    
+    ret->l = rel_basetable(sql, src_t, src_t->base.name); 
+    ret->r = rel_basetable(sql, dst_t, dst_t->base.name); 
+    ret->flag = target_dim;
+    sql->type = Q_UPDATE; 
+
+    fprintf(stderr, "[DEBUG-SEMANTIC] 5. op_pcatrain logical node built successfully! Returning %p\n", (void*)ret);
+    return ret;
 }

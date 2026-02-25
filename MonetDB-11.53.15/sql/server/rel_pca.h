@@ -17,6 +17,6 @@
 #include "sql_semantic.h"
 #include "sql_query.h"
 
-extern sql_rel *rel_pca_train(sql_query *query, symbol *s);
+extern sql_rel *rel_pcatrain(sql_query *query, symbol *s);
 
 #endif /*_REL_PCA_H_*/
