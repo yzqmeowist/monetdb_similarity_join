@@ -207,7 +207,8 @@ COPY INTO uw FROM '$ROOT_DIR/ml-latest-small/uw.csv' USING DELIMITERS ',', '\n',
 COPY INTO mw FROM '$ROOT_DIR/ml-latest-small/mw.csv' USING DELIMITERS ',', '\n', '"';
 
 CREATE TABLE user_model(R CLOB);
-pcatrain(uw, 16) INTO user_model;
+DELETE FROM user_model;
+INSERT INTO user_model SELECT pcatrain(F, CAST(16 AS INTEGER)) FROM uw;
 
 SELECT * FROM user_model;
 

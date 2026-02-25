@@ -5671,8 +5671,7 @@ center_kernel_matrix(float *K, int n, float **out_row_mean, float *out_total_mea
 }
 
 // Kernel PCA训练函数（内部自动选择核参数）
-gdk_return
-BATcalcpcatrain(BAT **model, const BAT *vectors, int target_dim)
+char* BATcalcpcatrain(const BAT *vectors, int target_dim)
 {
     int original_dim;
     BUN sample_count;
@@ -5822,27 +5821,7 @@ BATcalcpcatrain(BAT **model, const BAT *vectors, int target_dim)
         ptr += written; remaining -= written;
     }
     
-    /* =========================================================
-     * 创建只有1行数据的字符串 BAT
-     * ========================================================= */
-    BAT *result = COLnew(0, TYPE_str, 1, TRANSIENT);
-    if (!result) {
-        GDKfree(model_str); GDKfree(K); GDKfree(all_vectors); 
-        GDKfree(alphas); GDKfree(eigenvalues); GDKfree(temp_K); 
-        if (row_mean) GDKfree(row_mean);
-        return GDK_FAIL;
-    }
-    
-    if (BUNappend(result, model_str, false) != GDK_SUCCEED) {
-        BBPreclaim(result);
-        GDKfree(model_str); GDKfree(K); GDKfree(all_vectors); 
-        GDKfree(alphas); GDKfree(eigenvalues); GDKfree(temp_K); 
-        if (row_mean) GDKfree(row_mean);
-        return GDK_FAIL;
-    }
-    
-    // 清理所有临时 C 内存
-    GDKfree(model_str);
+    // 清理所有临时 C 内存 (模型字符串 model_str 留着返回！)
     GDKfree(K);
     GDKfree(all_vectors);
     GDKfree(alphas);
@@ -5850,9 +5829,8 @@ BATcalcpcatrain(BAT **model, const BAT *vectors, int target_dim)
     GDKfree(temp_K);
     if (row_mean) GDKfree(row_mean);
     
-    result->hseqbase = 0;
-    *model = result;
-    
     fprintf(stderr, "[KPCA] Model serialized successfully.\n");
-    return GDK_SUCCEED;
+    
+    // ✅ 直接返回分配好内存的字符串指针！
+    return model_str;
 }

@@ -1743,7 +1743,7 @@ sqltypeinit( allocator *sa)
 	sql_create_func(sa, "dot", "batcalc", "dot", FALSE, FALSE, SCALE_NONE, 0, DBL, 2, STR, STR);
 
 	/* compression similarity join, pca*/
-	sql_create_func(sa, "pcatrain", "batcalc", "pcatrain", TRUE, FALSE, SCALE_NONE, 0, STR, 2, STR, INT);
+	sql_create_aggr(sa, "pcatrain", "batcalc", "pcatrain", FALSE, FALSE, STR, 2, STR, INT);
 }
 
 void

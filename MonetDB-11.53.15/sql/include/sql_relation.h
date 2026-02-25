@@ -175,9 +175,7 @@ typedef enum operator_type {
 	op_update,	/* update(l=table, r update expressions) */
 	op_delete,	/* delete(l=table, r delete expression) */
 	op_truncate, /* truncate(l=table) */
-	op_merge, 	 /* IMPORTANT: keep op_merge last */
-	//compression similarity join, pca
-	op_pcatrain
+	op_merge 	 /* IMPORTANT: keep op_merge last */
 } operator_type;
 
 #define is_atom(et) 		(et == e_atom)

@@ -1434,93 +1434,51 @@ CMDbatDOT_auto(bat *res, const bat *bid1, const bat *bid2)
 
 // PCA训练包装函数
 static str
-CMDbatPCATRAIN(bat *res, const bat *vectors, const int *target_dim)
+CMDbatPCATRAIN(str *res, const bat *vectors, const bat *target_dim_bat)
 {   
     fprintf(stderr, "CMDbatPCATRAIN STARTED\n");
-    fflush(stderr);
-    BAT *vectors_bat = NULL, *model = NULL;
-    
-    fprintf(stderr, "\n========== CMDbatPCATRAIN DEBUG ==========\n");
-    fprintf(stderr, "[PCATRAIN] Starting PCA training, target_dim=%d\n", *target_dim);
-    
+    BAT *vectors_bat = NULL;
+    BAT *dim_bat = NULL; // 用来接维度的 BAT
+    int target_dim;
+
     if ((vectors_bat = BATdescriptor(*vectors)) == NULL) {
-        fprintf(stderr, "[PCATRAIN] ERROR: Cannot access vectors BAT\n");
         throw(MAL, "batcalcpcatrain", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
     }
     
-    fprintf(stderr, "[PCATRAIN] Input BAT id=%d, type=%d, rows=%llu\n", 
-            vectors_bat->batCacheid, vectors_bat->ttype, 
-            (unsigned long long)BATcount(vectors_bat));
+    // 💥 提取目标维度：打开维度的 BAT，读取第一行的值
+    if ((dim_bat = BATdescriptor(*target_dim_bat)) == NULL) {
+        BBPunfix(vectors_bat->batCacheid);
+        throw(MAL, "batcalcpcatrain", "Cannot access dimension BAT");
+    }
+    // Tloc(dim_bat, 0) 是获取 BAT 第一行数据的指针
+    target_dim = *(int*)Tloc(dim_bat, 0); 
+    BBPunfix(dim_bat->batCacheid); // 用完赶紧关掉
     
-    // 检查输入类型，如果是字符串则转换为向量
-    BAT *vec_bat = NULL;
+    // ... 剩下的代码完全不变，继续调用你的算法 ...
+    BAT *vec_bat = vectors_bat;
     if (ATOMstorage(vectors_bat->ttype) == TYPE_str) {
-        fprintf(stderr, "[PCATRAIN] Converting string BAT to vector BAT\n");
         if (BATcalcstr2vec(&vec_bat, vectors_bat) != GDK_SUCCEED) {
-            fprintf(stderr, "[PCATRAIN] ERROR: Failed to convert string to vector\n");
             BBPunfix(vectors_bat->batCacheid);
             throw(MAL, "batcalcpcatrain", "Failed to convert string to vector");
         }
-        fprintf(stderr, "[PCATRAIN] String conversion successful, rows=%llu\n", 
-                (unsigned long long)BATcount(vec_bat));
-    } else {
-        vec_bat = vectors_bat;
-        fprintf(stderr, "[PCATRAIN] Using input BAT directly, type=%d\n", 
-                ATOMstorage(vectors_bat->ttype));
     }
 
-    gdk_return ret;
-
-    fprintf(stderr, "[PCATRAIN] Calling BATcalcpcatrain with target_dim=%d\n", *target_dim);
-    ret = BATcalcpcatrain(&model, vec_bat, *target_dim);
+    char *model_str = BATcalcpcatrain(vec_bat, target_dim);
     
-    if (ret != GDK_SUCCEED) {
-        fprintf(stderr, "[PCATRAIN] ERROR: BATcalcpcatrain failed with code %d\n", ret);
-        if (vec_bat != vectors_bat) {
-            BBPreclaim(vec_bat);
-        }
+    if (!model_str) {
+        if (vec_bat != vectors_bat) BBPreclaim(vec_bat);
         BBPunfix(vectors_bat->batCacheid);
-        throw(MAL, "batcalcpcatrain", GDK_EXCEPTION);
+        throw(MAL, "batcalcpcatrain", "PCA Training failed");
     }
     
-    fprintf(stderr, "[PCATRAIN] BATcalcpcatrain SUCCESSFUL\n");
+    *res = model_str; 
     
-    if (model) {
-        fprintf(stderr, "[PCATRAIN] Model created successfully:\n");
-        fprintf(stderr, "[PCATRAIN]   - Model BAT id: %d\n", model->batCacheid);
-        fprintf(stderr, "[PCATRAIN]   - Model BAT rows: %llu\n", 
-                (unsigned long long)BATcount(model));
-        fprintf(stderr, "[PCATRAIN]   - Model BAT type: %d\n", model->ttype);
-        
-        // 【核心修正】: 既然现在是 str 类型的 BAT，我们要用 BUNtvar 把它当字符串打印
-        BATiter bi = bat_iterator(model);
-        if (BATcount(model) > 0) {
-            str data = (str)BUNtvar(bi, 0);
-            fprintf(stderr, "[PCATRAIN] Model data preview (first 60 chars):\n");
-            fprintf(stderr, "[PCATRAIN] %.60s...\n", data);
-        }
-        bat_iterator_end(&bi);
-        
-        *res = model->batCacheid;
-        BBPkeepref(model);
-        fprintf(stderr, "[PCATRAIN] Model stored with BAT id %d\n", *res);
-    } else {
-        fprintf(stderr, "[PCATRAIN] WARNING: Model is NULL!\n");
-        *res = bat_nil;
-    }
-    
-    if (vec_bat != vectors_bat) {
-        fprintf(stderr, "[PCATRAIN] Cleaning up temporary vector BAT\n");
-        BBPreclaim(vec_bat);
-    }
+    if (vec_bat != vectors_bat) BBPreclaim(vec_bat);
     BBPunfix(vectors_bat->batCacheid);
     
-    fprintf(stderr, "[PCATRAIN] Done, returning BAT id %d\n", *res);
-    fprintf(stderr, "========== CMDbatPCATRAIN END ==========\n\n");
-    
+    fprintf(stderr, "[PCATRAIN] Done, returning CLOB string.\n");
     return MAL_SUCCEED;
 }
-
 #include "mel.h"
 
 static str
@@ -2170,15 +2128,17 @@ batcalc_init(void)
 	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT_auto, "CMDbatDOT_auto", false, "Compute dot product of two string vectors (auto-convert)", 1, 3, arg_dbl_bat, arg_str_bat, arg_str_bat);
 	
 	/* compression similarity join 注册部分 */
- 	mel_func_arg pca_ret_str = { .type = TYPE_str, .isbat = 1 };
-  mel_func_arg pca_arg_str = { .type = TYPE_str, .isbat = 1 }; // 宣称只收字符串
-  mel_func_arg pca_arg_int = { .type = TYPE_int, .isbat = 0 };
+  /* compression similarity join 注册部分 */
+  mel_func_arg pca_ret_str = { .type = TYPE_str, .isbat = 0 }; // 返回标量字符串
+  mel_func_arg pca_arg_str = { .type = TYPE_str, .isbat = 1 }; // 接收列
+  // 💥 关键修改：常量 16 也会被打包成列传进来，所以必须是 isbat = 1
+  mel_func_arg pca_arg_int = { .type = TYPE_int, .isbat = 1 }; 
 
   err += melFunction(true, "batcalc", "pcatrain", (MALfcn)&CMDbatPCATRAIN, "CMDbatPCATRAIN", false, 
                      "PCA Train", 1, 3, 
                      pca_ret_str, pca_arg_str, pca_arg_int);
-  
-  return MAL_SUCCEED;
+
+	return MAL_SUCCEED;
 }
 
 static mel_func batcalc_init_funcs[] = {
