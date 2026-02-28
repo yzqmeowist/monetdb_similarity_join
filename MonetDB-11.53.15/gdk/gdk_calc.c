@@ -5122,111 +5122,12 @@ fail:
     return GDK_FAIL;
 }
 
-// gdk_return
-// BATcalccdot(BAT **res, const BAT *b1, const BAT *b2)
-// {
-//     BAT *bn = NULL;
-//     BUN i, count;
-//     BATiter bi1, bi2;
-//     int target_dim = 8;
-    
-//     if (BATcount(b1) != BATcount(b2)) {
-//         GDKerror("BATcalccdot: BATs must have same length\n");
-//         return GDK_FAIL;
-//     }
-    
-//     count = BATcount(b1);
-//     bn = COLnew(b1->hseqbase, TYPE_dbl, count, TRANSIENT);
-//     if (bn == NULL) return GDK_FAIL;
-    
-//     bi1 = bat_iterator(b1);
-//     bi2 = bat_iterator(b2);
-    
-//     for (i = 0; i < count; i++) {
-//         const char *s1 = (const char *) BUNtvar(bi1, i);
-//         const char *s2 = (const char *) BUNtvar(bi2, i);
-        
-//         if (strNil(s1) || strNil(s2)) {
-//             double nil = dbl_nil;
-//             if (BUNappend(bn, &nil, false) != GDK_SUCCEED) goto fail;
-//             continue;
-//         }
-        
-//         int len1, len2;
-//         blob *bvec1 = str_to_blob_vector(s1, &len1);
-//         blob *bvec2 = str_to_blob_vector(s2, &len2);
-        
-//         if (!bvec1 || !bvec2) {
-//             double nil = dbl_nil;
-//             if (BUNappend(bn, &nil, false) != GDK_SUCCEED) {
-//                 if (bvec1) GDKfree(bvec1);
-//                 if (bvec2) GDKfree(bvec2);
-//                 goto fail;
-//             }
-//             if (bvec1) GDKfree(bvec1);
-//             if (bvec2) GDKfree(bvec2);
-//             continue;
-//         }
-        
-//         float *orig1 = (float *)bvec1->data;
-//         float *orig2 = (float *)bvec2->data;
-//         int dim1 = (int)(bvec1->nitems / sizeof(float));
-//         int dim2 = (int)(bvec2->nitems / sizeof(float));
-        
-//         // 随机投影降维
-//         srand(42 + i); 
-        
-//         double dot_result = 0.0;
-//         for (int j = 0; j < target_dim; j++) {
-//             float proj1 = 0.0, proj2 = 0.0;
-            
-//             // 对第一个向量投影
-//             for (int k = 0; k < dim1; k++) {
-//                 float weight = ((float)rand() / RAND_MAX) * 2.0 - 1.0;
-//                 proj1 += orig1[k] * weight;
-//             }
-//             proj1 /= sqrtf(dim1);
-            
-//             // 对第二个向量投影
-//             srand(42 + i + j * 1000); 
-//             for (int k = 0; k < dim2; k++) {
-//                 float weight = ((float)rand() / RAND_MAX) * 2.0 - 1.0;
-//                 proj2 += orig2[k] * weight;
-//             }
-//             proj2 /= sqrtf(dim2);
-            
-//             dot_result += (double)proj1 * (double)proj2;
-//         }
-        
-//         if (BUNappend(bn, &dot_result, false) != GDK_SUCCEED) {
-//             GDKfree(bvec1);
-//             GDKfree(bvec2);
-//             goto fail;
-//         }
-        
-//         GDKfree(bvec1);
-//         GDKfree(bvec2);
-//     }
-    
-//     *res = bn;
-//     bat_iterator_end(&bi1);
-//     bat_iterator_end(&bi2);
-//     return GDK_SUCCEED;
-    
-// fail:
-//     bat_iterator_end(&bi1);
-//     bat_iterator_end(&bi2);
-//     if (bn) BBPreclaim(bn);
-//     return GDK_FAIL;
-// }
-
 #include "gdk_calc.h"
 #include <math.h>
 #include <float.h>
 #include <string.h>
 
-
-// 提取向量数据
+// Extract vector data from BAT
 static float *
 extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
 {
@@ -5236,7 +5137,7 @@ extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
     fprintf(stderr, "\n========== EXTRACT DEBUG ==========\n");
     fprintf(stderr, "[EXTRACT] Total rows in BAT: %llu\n", (unsigned long long)count);
     
-    // 第一遍：收集所有非NULL向量的维度信息
+    // First pass: collect dimension information from all non-NULL vectors
     int *dims = GDKmalloc(count * sizeof(int));
     BUN *non_nil_indices = GDKmalloc(count * sizeof(BUN));
     BUN non_nil_count = 0;
@@ -5256,7 +5157,7 @@ extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
             non_nil_indices[non_nil_count] = i;
             non_nil_count++;
             
-            // 打印前几个向量的维度信息
+            // Print dimension info for the first few vectors
             if (non_nil_count <= 10) {
                 fprintf(stderr, "[EXTRACT] Row %llu: dim=%d\n", 
                         (unsigned long long)i, current_dim);
@@ -5266,7 +5167,7 @@ extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
     
     fprintf(stderr, "[EXTRACT] Non-nil vectors: %llu\n", (unsigned long long)non_nil_count);
     
-    // 统计各维度的出现频率
+    // Count frequency of each dimension
     int *dim_freq = NULL;
     int unique_dims = 0;
     int max_freq_dim = -1;
@@ -5291,7 +5192,7 @@ extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
                 }
             }
             
-            // 找出最常见的维度
+            // Find the most common dimension
             for (int i = 0; i < unique_dims; i++) {
                 int d = dim_freq[i * 2];
                 int f = dim_freq[i * 2 + 1];
@@ -5305,7 +5206,7 @@ extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
         }
     }
     
-    // 使用最常见的维度作为目标维度
+    // Use the most common dimension as target dimension
     int dim = max_freq_dim;
     if (dim <= 0) {
         fprintf(stderr, "[EXTRACT] ERROR: No valid dimension found\n");
@@ -5315,7 +5216,7 @@ extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
         return NULL;
     }
     
-    // 统计目标维度的向量数量
+    // Count vectors with target dimension
     BUN valid_count = 0;
     for (BUN i = 0; i < non_nil_count; i++) {
         if (dims[i] == dim) {
@@ -5334,7 +5235,7 @@ extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
         return NULL;
     }
     
-    // 分配内存
+    // Allocate memory
     float *all_vectors = GDKmalloc(valid_count * dim * sizeof(float));
     if (!all_vectors) {
         GDKfree(dims);
@@ -5343,7 +5244,7 @@ extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
         return NULL;
     }
     
-    // 提取目标维度的向量，保持原始顺序
+    // Extract vectors with target dimension, preserving original order
     BUN idx = 0;
     for (BUN i = 0; i < non_nil_count; i++) {
         if (dims[i] == dim) {
@@ -5352,7 +5253,7 @@ extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
             float *vec = (float *)b->data;
             memcpy(&all_vectors[idx * dim], vec, dim * sizeof(float));
             
-            // 打印前几个提取的向量
+            // Print the first few extracted vectors
             if (idx < 5) {
                 fprintf(stderr, "[EXTRACT] Extracted vector %llu (row %llu): ", 
                         (unsigned long long)idx, (unsigned long long)row_idx);
@@ -5379,23 +5280,23 @@ extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
     return all_vectors;
 }
 
-// 改进的幂迭代法
+// Power iteration method for computing dominant eigenpair
 static int
 power_iteration(float *eigenvector, float *eigenvalue, const float *matrix, int n, int max_iter)
 {
-    // 随机初始化特征向量
+    // Random initialization of eigenvector
     for (int i = 0; i < n; i++) {
         eigenvector[i] = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
     }
     
-    // 归一化
+    // Normalize
     float norm = 0.0f;
     for (int i = 0; i < n; i++) {
         norm += eigenvector[i] * eigenvector[i];
     }
     norm = sqrtf(norm);
     if (norm < FLT_EPSILON) {
-        // 如果初始向量太小，使用单位向量
+        // Use unit vector if initial vector is too small
         for (int i = 0; i < n; i++) {
             eigenvector[i] = (i == 0) ? 1.0f : 0.0f;
         }
@@ -5415,13 +5316,13 @@ power_iteration(float *eigenvector, float *eigenvalue, const float *matrix, int 
         return 0;
     }
     
-    // 初始化特征值
+    // Initialize eigenvalue
     *eigenvalue = 0.0f;
     
     for (int iter = 0; iter < max_iter; iter++) {
         memcpy(prev_vector, eigenvector, n * sizeof(float));
         
-        // 计算 matrix * eigenvector
+        // Compute matrix * eigenvector
         for (int i = 0; i < n; i++) {
             temp_vector[i] = 0.0f;
             for (int j = 0; j < n; j++) {
@@ -5429,7 +5330,7 @@ power_iteration(float *eigenvector, float *eigenvalue, const float *matrix, int 
             }
         }
         
-        // 计算Rayleigh商（特征值近似）
+        // Compute Rayleigh quotient (eigenvalue approximation)
         // λ = (v^T * A * v) / (v^T * v)
         float dot_vAv = 0.0f;
         float dot_vv = 0.0f;
@@ -5439,7 +5340,7 @@ power_iteration(float *eigenvector, float *eigenvalue, const float *matrix, int 
         }
         
         if (fabsf(dot_vv) < FLT_EPSILON) {
-            // 向量太小，无法继续
+            // Vector too small, cannot continue
             GDKfree(prev_vector);
             GDKfree(temp_vector);
             return 0;
@@ -5447,7 +5348,7 @@ power_iteration(float *eigenvector, float *eigenvalue, const float *matrix, int 
         
         float new_eigenvalue = dot_vAv / dot_vv;
         
-        // 检查特征值是否有意义
+        // Check if eigenvalue is meaningful
         if (!isfinite(new_eigenvalue)) {
             GDKfree(prev_vector);
             GDKfree(temp_vector);
@@ -5456,7 +5357,7 @@ power_iteration(float *eigenvector, float *eigenvalue, const float *matrix, int 
         
         *eigenvalue = new_eigenvalue;
         
-        // 归一化得到新的特征向量
+        // Normalize to obtain new eigenvector
         norm = 0.0f;
         for (int i = 0; i < n; i++) {
             norm += temp_vector[i] * temp_vector[i];
@@ -5464,7 +5365,7 @@ power_iteration(float *eigenvector, float *eigenvalue, const float *matrix, int 
         norm = sqrtf(norm);
         
         if (norm < FLT_EPSILON) {
-            // 如果结果向量太小，重新随机初始化
+            // If result vector is too small, reinitialize randomly
             for (int i = 0; i < n; i++) {
                 eigenvector[i] = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
             }
@@ -5482,28 +5383,27 @@ power_iteration(float *eigenvector, float *eigenvalue, const float *matrix, int 
             }
         }
         
-        // 检查收敛
-        // 特征向量方向的变化
+        // check convergence, cosine similarity of eigenvector direction change
         float cos_similarity = 0.0f;
         for (int i = 0; i < n; i++) {
             cos_similarity += eigenvector[i] * prev_vector[i];
         }
         float angle_diff = fabsf(cos_similarity);
         
-        // 特征值的变化（如果有前一次迭代）
+        // eigenvalue change (if previous iteration exists)
         if (iter > 0) {
-            // 特征值应该相对稳定
+            // eigenvalue should be relatively stable
             float eigenvalue_change = fabsf(new_eigenvalue - *eigenvalue) / fabsf(new_eigenvalue);
             
-            // 双重收敛条件
+            // dual convergence condition
             if (angle_diff > 0.999999f && eigenvalue_change < 1e-6f) {
-                // 收敛条件满足
+                // convergence criteria satisfied
                 GDKfree(prev_vector);
                 GDKfree(temp_vector);
                 return 1;
             }
         } else {
-            // 第一次迭代，只检查向量方向
+            // First iteration, only check vector direction
             if (angle_diff > 0.999999f) {
                 GDKfree(prev_vector);
                 GDKfree(temp_vector);
@@ -5512,18 +5412,17 @@ power_iteration(float *eigenvector, float *eigenvalue, const float *matrix, int 
         }
     }
     
-    // 达到最大迭代次数
+    // Maximum iterations reached
     GDKfree(prev_vector);
     GDKfree(temp_vector);
-    // 即使没有完全收敛，也返回成功（算法可能已经足够接近）
+    // Return success even without full convergence (algorithm may be close enough)
     return 1;
 }
 
-// 正确的矩阵deflation
+// matrix deflation: A' = A - λ * v * v^T
 static void
 deflate_matrix(float *matrix, const float *eigenvector, float eigenvalue, int n)
 {
-    // 正确的deflation公式: A' = A - λ * v * v^T
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n; j++) {
             matrix[i * n + j] -= eigenvalue * eigenvector[i] * eigenvector[j];
@@ -5531,14 +5430,14 @@ deflate_matrix(float *matrix, const float *eigenvector, float eigenvalue, int n)
     }
 }
 
-// Gram-Schmidt正交化
+// Gram-Schmidt Orthogonalization
 static void
 gram_schmidt(float *vectors, int num_vectors, int dim)
 {
     for (int i = 0; i < num_vectors; i++) {
         float *vi = &vectors[i * dim];
         
-        // 与之前向量正交化
+        // orthogonalization with previous vectors
         for (int j = 0; j < i; j++) {
             float *vj = &vectors[j * dim];
             float dot = 0.0f;
@@ -5546,7 +5445,7 @@ gram_schmidt(float *vectors, int num_vectors, int dim)
             for (int k = 0; k < dim; k++) vi[k] -= dot * vj[k];
         }
         
-        // 归一化
+        // normalization
         float norm = 0.0f;
         for (int k = 0; k < dim; k++) norm += vi[k] * vi[k];
         norm = sqrtf(norm);
@@ -5556,26 +5455,26 @@ gram_schmidt(float *vectors, int num_vectors, int dim)
     }
 }
 
-// 核函数类型 - 内部固定使用RBF，不需要暴露给用户
+// kernel function type 
 typedef enum {
-    KERNEL_RBF = 0   // 只保留RBF核
+    KERNEL_RBF = 0  
 } kernel_type;
 
-// 核函数参数 - 内部自动确定gamma值
+// kernel function parameter
 typedef struct {
     kernel_type type;
-    float gamma;     // 根据数据自动计算
+    float gamma;    
 } kernel_params;
 
-// 自动计算gamma值（使用"median heuristic"）
+// automatically calculate gamma value (using "median heuristic").
 static float
 compute_gamma(const float *samples, int n_samples, int dim)
 {
-    // 随机采样一些点对，计算距离的中位数
+    // Randomly sample some pairs of points and calculate the median distance
     int n_pairs = MIN(1000, n_samples * (n_samples - 1) / 2);
     float *dists = GDKmalloc(n_pairs * sizeof(float));
     
-    if (!dists) return 1.0f / dim;  // 默认值
+    if (!dists) return 1.0f / dim; 
     
     int idx = 0;
     for (int i = 0; i < n_samples && idx < n_pairs; i++) {
@@ -5592,7 +5491,7 @@ compute_gamma(const float *samples, int n_samples, int dim)
         }
     }
     
-    // 找中位数
+		//find median
     for (int i = 0; i < idx - 1; i++) {
         for (int j = 0; j < idx - i - 1; j++) {
             if (dists[j] > dists[j + 1]) {
@@ -5606,11 +5505,11 @@ compute_gamma(const float *samples, int n_samples, int dim)
     float median = dists[idx / 2];
     GDKfree(dists);
     
-    // gamma = 1 / (2 * σ²)，其中σ是距离的中位数
+    // gamma = 1 / (2 * σ²)，where σ is the median of the distance.
     return 1.0f / (2.0f * median * median + 1e-10);
 }
 
-// RBF核函数计算
+// RBF kernal function calculate
 static float
 rbf_kernel(const float *x, const float *y, int dim, float gamma)
 {
@@ -5622,7 +5521,7 @@ rbf_kernel(const float *x, const float *y, int dim, float gamma)
     return expf(-gamma * dist2);
 }
 
-// 计算核矩阵
+// calculate kernel matrix
 static float*
 compute_kernel_matrix(const float *samples, int n_samples, int dim, float gamma)
 {
@@ -5641,7 +5540,7 @@ compute_kernel_matrix(const float *samples, int n_samples, int dim, float gamma)
     return K;
 }
 
-// 中心化核矩阵并返回均值参数
+// center the kernel matrix and return the mean parameter
 static void
 center_kernel_matrix(float *K, int n, float **out_row_mean, float *out_total_mean)
 {
@@ -5660,17 +5559,16 @@ center_kernel_matrix(float *K, int n, float **out_row_mean, float *out_total_mea
     
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n; j++) {
-            // 公式：K_centered = K - 1_N K - K 1_N + 1_N K 1_N
+            // K_centered = K - 1_N K - K 1_N + 1_N K 1_N
             K[i * n + j] -= row_mean[i] + row_mean[j] - total_mean;
         }
     }
     
-    // 【核心修正】：不要释放 row_mean，将它们返回给外层保存到模型中
     *out_row_mean = row_mean;
     *out_total_mean = total_mean;
 }
 
-// Kernel PCA训练函数（内部自动选择核参数）
+// Kernel PCA train function
 char* BATcalcpcatrain(const BAT *vectors, int target_dim)
 {
     int original_dim;
@@ -5679,7 +5577,7 @@ char* BATcalcpcatrain(const BAT *vectors, int target_dim)
     fprintf(stderr, "\n========== KERNEL PCA TRAIN DEBUG ==========\n");
     fprintf(stderr, "[KPCA] target_dim=%d\n", target_dim);
     
-    // 提取数据
+    // extract data and chect target dim
     float *all_vectors = extract_vectors_from_bat(vectors, &original_dim, &sample_count);
     
     if (!all_vectors || sample_count < 2) {
@@ -5688,30 +5586,27 @@ char* BATcalcpcatrain(const BAT *vectors, int target_dim)
         return GDK_FAIL;
     }
     
-    // 检查目标维度
     if (target_dim <= 0 || target_dim > (int)sample_count) {
         fprintf(stderr, "[KPCA] ERROR: target_dim must be <= sample_count\n");
         GDKfree(all_vectors);
         return GDK_FAIL;
     }
     
-    // 自动计算gamma参数
+    // calculate parameter gama
     float gamma = compute_gamma(all_vectors, sample_count, original_dim);
     fprintf(stderr, "[KPCA] Auto-computed gamma = %f\n", gamma);
     
-    // 计算核矩阵
+    // calculate kernal matrix
     float *K = compute_kernel_matrix(all_vectors, sample_count, original_dim, gamma);
     if (!K) {
         GDKfree(all_vectors);
         return GDK_FAIL;
     }
     
-    // 【修改点】：接收中心化产生的均值参数
     float *row_mean = NULL;
     float total_mean = 0.0f;
     center_kernel_matrix(K, sample_count, &row_mean, &total_mean);
     
-    // 分配内存
     float *alphas = GDKmalloc(sample_count * target_dim * sizeof(float));
     float *eigenvalues = GDKmalloc(target_dim * sizeof(float));
     float *temp_K = GDKmalloc(sample_count * sample_count * sizeof(float));
@@ -5722,13 +5617,13 @@ char* BATcalcpcatrain(const BAT *vectors, int target_dim)
         if (alphas) GDKfree(alphas);
         if (eigenvalues) GDKfree(eigenvalues);
         if (temp_K) GDKfree(temp_K);
-        if (row_mean) GDKfree(row_mean); // <-- 加上这行
+        if (row_mean) GDKfree(row_mean);
         return GDK_FAIL;
     }
     
     memcpy(temp_K, K, sample_count * sample_count * sizeof(float));
     
-    // 计算特征向量
+    // calculate eigenvector
     for (int comp = 0; comp < target_dim; comp++) {
         float *alpha = &alphas[comp * sample_count];
         float eigenvalue = 0.0f;
@@ -5747,20 +5642,18 @@ char* BATcalcpcatrain(const BAT *vectors, int target_dim)
         
         eigenvalues[comp] = eigenvalue;
         
-        // 归一化特征向量
-        // 【核心修正】：KPCA 的特征向量归一化
+        //eigenvector normalization
         float norm = 0.0f;
         for (int i = 0; i < sample_count; i++) {
             norm += alpha[i] * alpha[i];
         }
         norm = sqrtf(norm);
         
-        // 必须除以特征值的平方根！(注意防止数值不稳定)
         float scale = 1e-10f;
         if (eigenvalue > 1e-10f) {
             scale = norm * sqrtf(eigenvalue);
         } else {
-            scale = norm; // 兜底，防止崩溃
+            scale = norm; //prevent crash
         }
         
         if (scale > 1e-10f) {
@@ -5772,11 +5665,9 @@ char* BATcalcpcatrain(const BAT *vectors, int target_dim)
         deflate_matrix(temp_K, alpha, eigenvalue, sample_count);
     }
     
-    // Gram-Schmidt正交化
+    // Gram-Schmidt Orthogonalization
     gram_schmidt(alphas, target_dim, sample_count);
-   // 1. 计算所需的最大字符缓冲区长度 (保守估计每个浮点数/整数占 24 个字符)
-    size_t total_floats = 1 + 1 + sample_count + target_dim + 
-                          (sample_count * original_dim) + (sample_count * target_dim);
+    size_t total_floats = 1 + 1 + sample_count + target_dim + (sample_count * original_dim) + (sample_count * target_dim);
     size_t buf_size = (total_floats + 10) * 24 + 128;
     
     char *model_str = GDKmalloc(buf_size);
@@ -5790,38 +5681,30 @@ char* BATcalcpcatrain(const BAT *vectors, int target_dim)
     size_t remaining = buf_size;
     int written;
     
-    // 2. 写入标量元数据
-    written = snprintf(ptr, remaining, "%e,%llu,%d,%d,%e,", 
-                       gamma, (unsigned long long)sample_count, original_dim, target_dim, total_mean);
+    written = snprintf(ptr, remaining, "%e,%llu,%d,%d,%e,", gamma, (unsigned long long)sample_count, original_dim, target_dim, total_mean);
     ptr += written; remaining -= written;
     
-    // 3. 写入 row_mean 数组
     for (BUN i = 0; i < sample_count; i++) {
         written = snprintf(ptr, remaining, "%e,", row_mean[i]);
         ptr += written; remaining -= written;
     }
     
-    // 4. 写入 eigenvalues (特征值)
     for (int i = 0; i < target_dim; i++) {
         written = snprintf(ptr, remaining, "%e,", eigenvalues[i]);
         ptr += written; remaining -= written;
     }
     
-    // 5. 写入 all_vectors (支持向量)
     for (BUN i = 0; i < sample_count * original_dim; i++) {
         written = snprintf(ptr, remaining, "%e,", all_vectors[i]);
         ptr += written; remaining -= written;
     }
     
-    // 6. 写入 alphas (主成分系数)
+    // main component coefficient
     for (BUN i = 0; i < sample_count * target_dim; i++) {
-        // 最后一个元素不需要结尾逗号
-        written = snprintf(ptr, remaining, "%e%s", alphas[i], 
-                           (i == sample_count * target_dim - 1) ? "" : ",");
+        written = snprintf(ptr, remaining, "%e%s", alphas[i], (i == sample_count * target_dim - 1) ? "" : ",");
         ptr += written; remaining -= written;
     }
     
-    // 清理所有临时 C 内存 (模型字符串 model_str 留着返回！)
     GDKfree(K);
     GDKfree(all_vectors);
     GDKfree(alphas);
@@ -5831,13 +5714,11 @@ char* BATcalcpcatrain(const BAT *vectors, int target_dim)
     
     fprintf(stderr, "[KPCA] Model serialized successfully.\n");
     
-    // ✅ 直接返回分配好内存的字符串指针！
+    // return the pointer
     return model_str;
 }
 
-// ==========================================================================
-// 1. 先定义结构体 (必须放在最前面，让编译器认识它！)
-// ==========================================================================
+// define model structure and release it
 typedef struct {
     float gamma;
     BUN sample_count;
@@ -5850,9 +5731,6 @@ typedef struct {
     float *alphas;
 } KPCAModel;
 
-// ==========================================================================
-// 2. 然后是辅助函数：解析模型和释放内存
-// ==========================================================================
 static KPCAModel* parse_kpca_model(const char *model_str) {
     KPCAModel *model = GDKmalloc(sizeof(KPCAModel));
     if (!model) return NULL;
@@ -5860,7 +5738,6 @@ static KPCAModel* parse_kpca_model(const char *model_str) {
     char *ptr = (char *)model_str;
     char *endptr;
 
-    // 读取标量元数据
     model->gamma = strtof(ptr, &endptr); ptr = endptr + 1;
     model->sample_count = (BUN)strtoull(ptr, &endptr, 10); ptr = endptr + 1;
     model->original_dim = (int)strtol(ptr, &endptr, 10); ptr = endptr + 1;
@@ -5871,7 +5748,6 @@ static KPCAModel* parse_kpca_model(const char *model_str) {
     int odim = model->original_dim;
     int tdim = model->target_dim;
 
-    // 分配数组内存
     model->row_mean = GDKmalloc(N * sizeof(float));
     model->eigenvalues = GDKmalloc(tdim * sizeof(float));
     model->all_vectors = GDKmalloc(N * odim * sizeof(float));
@@ -5881,7 +5757,6 @@ static KPCAModel* parse_kpca_model(const char *model_str) {
         return NULL; 
     }
 
-    // 批量读取数组数据
     for (BUN i = 0; i < N; i++) {
         model->row_mean[i] = strtof(ptr, &endptr); ptr = endptr + 1;
     }
@@ -5908,9 +5783,7 @@ static void free_kpca_model(KPCAModel *model) {
     }
 }
 
-// ==========================================================================
-// 3. 数学核心：降维投影
-// ==========================================================================
+//dimension deduction projection
 static void project_single_vector(const float *x_new, const KPCAModel *model, float *out_vec) {
     BUN N = model->sample_count;
     int odim = model->original_dim;
@@ -5943,9 +5816,7 @@ static void project_single_vector(const float *x_new, const KPCAModel *model, fl
     GDKfree(k_values);
 }
 
-// ==========================================================================
-// 4. 最后才是 GDK 的主入口函数！(这个时候编译器已经认识前面所有的东西了)
-// ==========================================================================
+// compression similarity join, pca_apply
 gdk_return
 BATcalcpcaapply(BAT **res, BAT *vec_bat, const char *model_str)
 {
@@ -5975,7 +5846,7 @@ BATcalcpcaapply(BAT **res, BAT *vec_bat, const char *model_str)
     for (BUN i = 0; i < count; i++) {
         const blob *b = (const blob *) BUNtvar(vec_bi, i);
         
-        // 🛡️ 架构师的绝对防御：如果这一行是 SQL NULL，直接输出 NULL 并跳过计算！
+        // If this line is an SQL NULL, output NULL directly and skip the calculation!
         if (b == NULL || is_blob_nil(b)) {
             if (BUNappend(out_bat, str_nil, false) != GDK_SUCCEED) {
                 free_kpca_model(kpca_model);
@@ -5984,10 +5855,9 @@ BATcalcpcaapply(BAT **res, BAT *vec_bat, const char *model_str)
                 bat_iterator_end(&vec_bi);
                 return GDK_FAIL;
             }
-            continue; // 成功追加 NULL 后，直接跳入下一行
+            continue; 
         }
 
-        // 走到这里说明是有真实数据的，正常解包和计算
         float *input_floats = (float *)b->data; 
 
         project_single_vector(input_floats, kpca_model, new_vec);

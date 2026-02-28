@@ -2212,27 +2212,16 @@ batcalc_init(void)
 	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, "Compute dot product of two blob vectors", 1, 3, arg_dbl_bat, arg_blob_bat, arg_blob_bat);
 	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT_auto, "CMDbatDOT_auto", false, "Compute dot product of two string vectors (auto-convert)", 1, 3, arg_dbl_bat, arg_str_bat, arg_str_bat);
 	
-	/* compression similarity join 注册部分 */
-  /* compression similarity join 注册部分 */
-  mel_func_arg pca_ret_str = { .type = TYPE_str, .isbat = 0 }; // 返回标量字符串
-  mel_func_arg pca_arg_str = { .type = TYPE_str, .isbat = 1 }; // 接收列
-  // 💥 关键修改：常量 16 也会被打包成列传进来，所以必须是 isbat = 1
+	/* compression similarity join, pca */
+  mel_func_arg pca_ret_str = { .type = TYPE_str, .isbat = 0 }; 
+  mel_func_arg pca_arg_str = { .type = TYPE_str, .isbat = 1 }; 
   mel_func_arg pca_arg_int = { .type = TYPE_int, .isbat = 1 }; 
-
-  err += melFunction(true, "batcalc", "pcatrain", (MALfcn)&CMDbatPCATRAIN, "CMDbatPCATRAIN", false, 
-                     "PCA Train", 1, 3, 
-                     pca_ret_str, pca_arg_str, pca_arg_int);
+  err += melFunction(true, "batcalc", "pcatrain", (MALfcn)&CMDbatPCATRAIN, "CMDbatPCATRAIN", false, "Train data and get a PCA model", 1, 3, pca_ret_str, pca_arg_str, pca_arg_int);
 
 	mel_func_arg apply_ret_str = { .type = TYPE_str, .isbat = 1 }; 
-  
-  // 参数1：一整列待处理的特征向量 (isbat = 1)
   mel_func_arg apply_arg_str1 = { .type = TYPE_str, .isbat = 1 }; 
-  // 参数2：模型字符串 (虽然逻辑上是一个值，但底层会以 BAT 的形式传进来，isbat = 1)
   mel_func_arg apply_arg_str2 = { .type = TYPE_str, .isbat = 1 }; 
-
-  err += melFunction(true, "batcalc", "pcaapply", (MALfcn)&CMDbatPCAAPPLY, "CMDbatPCAAPPLY", false, 
-                     "Apply PCA model to data", 1, 3, 
-                     apply_ret_str, apply_arg_str1, apply_arg_str2);
+  err += melFunction(true, "batcalc", "pcaapply", (MALfcn)&CMDbatPCAAPPLY, "CMDbatPCAAPPLY", false, "Apply PCA model to data", 1, 3, apply_ret_str, apply_arg_str1, apply_arg_str2);
 
 	return MAL_SUCCEED;
 }

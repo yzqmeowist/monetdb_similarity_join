@@ -5287,48 +5287,27 @@ rel_value_exp2(sql_query *query, sql_rel **rel, symbol *se, int f, exp_kind ek)
     list *args;
     sql_subfunc *fnc;
 
-    fprintf(stderr, "\n[DEBUG-BIND] 1. SQL_PCATRAIN parsing started\n");
-    fflush(stderr);
-
-    /* 1. 解析第一个参数 (特征列) */
     if (!(l_exp = rel_value_exp(query, rel, l->h->data.sym, f, ek))) {
         return NULL;
     }
     
-    /* 2. 解析第二个参数 (维度) */
     if (!(r_exp = rel_value_exp(query, rel, l->h->next->data.sym, f, ek))) {
         return NULL;
     }
 
-    fprintf(stderr, "[DEBUG-BIND] 2. Arguments parsed successfully.\n");
-    fflush(stderr);
-
-    /* 3. 【核心修正】安全查找函数：提取出明确的 subtype 传给强类型接口 */
-    // 明确告诉系统：我要找一个接收这两个类型的 F_AGGR 聚合函数
     fnc = sql_bind_func(sql, "sys", "pcatrain", exp_subtype(l_exp), exp_subtype(r_exp), F_AGGR, false, false);
     
     if (!fnc) {
-        fprintf(stderr, "[DEBUG-BIND] 💥 FATAL: pcatrain aggregate function not found in catalog!\n");
-        fflush(stderr);
         return sql_error(sql, 02, SQLSTATE(42000) "PCA Error: Aggregate function 'pcatrain' not found.");
     }
 
-    fprintf(stderr, "[DEBUG-BIND] 3. Function bound successfully! fnc=%p\n", (void*)fnc);
-    fflush(stderr);
-
-    /* 4. 将表达式打包到列表里，专门留给后面的 exp_aggr 使用 */
     args = sa_list(sql->sa);
     list_append(args, l_exp);
     list_append(args, r_exp);
 
-    /* 5. 防御性获取基数 (cardinality) */
     int cardinality = (rel && *rel) ? (*rel)->card : CARD_ATOM;
 
-    /* 6. 组装表达式节点 */
     sql_exp *res_exp = exp_aggr(sql->sa, args, fnc, 0, 0, cardinality, 0); 
-    
-    fprintf(stderr, "[DEBUG-BIND] 4. exp_aggr node created successfully: %p\n", (void*)res_exp);
-    fflush(stderr);
 
     return res_exp;
   }
@@ -5337,40 +5316,22 @@ rel_value_exp2(sql_query *query, sql_rel **rel, symbol *se, int f, exp_kind ek)
     sql_exp *l_exp, *r_exp;
     sql_subfunc *fnc;
 
-    fprintf(stderr, "\n[DEBUG-BIND] 1. SQL_PCAAPPLY parsing started\n");
-    fflush(stderr);
-
-    /* 1. 解析第一个参数 (待降维的特征列) */
     if (!(l_exp = rel_value_exp(query, rel, l->h->data.sym, f, ek))) {
         return NULL;
     }
     
-    /* 2. 解析第二个参数 (模型 CLOB 字符串) */
     if (!(r_exp = rel_value_exp(query, rel, l->h->next->data.sym, f, ek))) {
         return NULL;
     }
 
-    fprintf(stderr, "[DEBUG-BIND] 2. Arguments parsed successfully.\n");
-    fflush(stderr);
-
-    /* 3. 【核心区别】安全查找函数：我们要找的是普通的标量函数 (F_FUNC) */
     fnc = sql_bind_func(sql, "sys", "pcaapply", exp_subtype(l_exp), exp_subtype(r_exp), F_FUNC, false, false);
     
     if (!fnc) {
-        fprintf(stderr, "[DEBUG-BIND] 💥 FATAL: pcaapply scalar function not found in catalog!\n");
-        fflush(stderr);
         return sql_error(sql, 02, SQLSTATE(42000) "PCA Error: Scalar function 'pcaapply' not found.");
     }
 
-    fprintf(stderr, "[DEBUG-BIND] 3. Function bound successfully! fnc=%p\n", (void*)fnc);
-    fflush(stderr);
-
-    /* 4. 组装表达式节点：使用 exp_binop (二元操作符) 构建标量计算节点 */
     sql_exp *res_exp = exp_binop(sql->sa, l_exp, r_exp, fnc);
     
-    fprintf(stderr, "[DEBUG-BIND] 4. exp_binop node created successfully: %p\n", (void*)res_exp);
-    fflush(stderr);
-
     return res_exp;
   }
 	default:
