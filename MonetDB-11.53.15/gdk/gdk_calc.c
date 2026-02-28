@@ -5834,3 +5834,182 @@ char* BATcalcpcatrain(const BAT *vectors, int target_dim)
     // ✅ 直接返回分配好内存的字符串指针！
     return model_str;
 }
+
+// ==========================================================================
+// 1. 先定义结构体 (必须放在最前面，让编译器认识它！)
+// ==========================================================================
+typedef struct {
+    float gamma;
+    BUN sample_count;
+    int original_dim;
+    int target_dim;
+    float total_mean;
+    float *row_mean;
+    float *eigenvalues;
+    float *all_vectors;
+    float *alphas;
+} KPCAModel;
+
+// ==========================================================================
+// 2. 然后是辅助函数：解析模型和释放内存
+// ==========================================================================
+static KPCAModel* parse_kpca_model(const char *model_str) {
+    KPCAModel *model = GDKmalloc(sizeof(KPCAModel));
+    if (!model) return NULL;
+
+    char *ptr = (char *)model_str;
+    char *endptr;
+
+    // 读取标量元数据
+    model->gamma = strtof(ptr, &endptr); ptr = endptr + 1;
+    model->sample_count = (BUN)strtoull(ptr, &endptr, 10); ptr = endptr + 1;
+    model->original_dim = (int)strtol(ptr, &endptr, 10); ptr = endptr + 1;
+    model->target_dim = (int)strtol(ptr, &endptr, 10); ptr = endptr + 1;
+    model->total_mean = strtof(ptr, &endptr); ptr = endptr + 1;
+
+    BUN N = model->sample_count;
+    int odim = model->original_dim;
+    int tdim = model->target_dim;
+
+    // 分配数组内存
+    model->row_mean = GDKmalloc(N * sizeof(float));
+    model->eigenvalues = GDKmalloc(tdim * sizeof(float));
+    model->all_vectors = GDKmalloc(N * odim * sizeof(float));
+    model->alphas = GDKmalloc(N * tdim * sizeof(float));
+
+    if (!model->row_mean || !model->eigenvalues || !model->all_vectors || !model->alphas) {
+        return NULL; 
+    }
+
+    // 批量读取数组数据
+    for (BUN i = 0; i < N; i++) {
+        model->row_mean[i] = strtof(ptr, &endptr); ptr = endptr + 1;
+    }
+    for (int i = 0; i < tdim; i++) {
+        model->eigenvalues[i] = strtof(ptr, &endptr); ptr = endptr + 1;
+    }
+    for (BUN i = 0; i < N * odim; i++) {
+        model->all_vectors[i] = strtof(ptr, &endptr); ptr = endptr + 1;
+    }
+    for (BUN i = 0; i < N * tdim; i++) {
+        model->alphas[i] = strtof(ptr, &endptr); ptr = endptr + (*endptr == ',' ? 1 : 0);
+    }
+
+    return model;
+}
+
+static void free_kpca_model(KPCAModel *model) {
+    if (model) {
+        if (model->row_mean) GDKfree(model->row_mean);
+        if (model->eigenvalues) GDKfree(model->eigenvalues);
+        if (model->all_vectors) GDKfree(model->all_vectors);
+        if (model->alphas) GDKfree(model->alphas);
+        GDKfree(model);
+    }
+}
+
+// ==========================================================================
+// 3. 数学核心：降维投影
+// ==========================================================================
+static void project_single_vector(const float *x_new, const KPCAModel *model, float *out_vec) {
+    BUN N = model->sample_count;
+    int odim = model->original_dim;
+    int tdim = model->target_dim;
+    
+    float *k_values = GDKmalloc(N * sizeof(float));
+    float k_new_mean = 0.0f;
+
+    for (BUN i = 0; i < N; i++) {
+        float dist2 = 0.0f;
+        const float *x_train = &model->all_vectors[i * odim];
+        for (int j = 0; j < odim; j++) {
+            float d = x_new[j] - x_train[j];
+            dist2 += d * d;
+        }
+        k_values[i] = expf(-model->gamma * dist2);
+        k_new_mean += k_values[i];
+    }
+    k_new_mean /= N;
+
+    for (int k = 0; k < tdim; k++) out_vec[k] = 0.0f;
+
+    for (BUN i = 0; i < N; i++) {
+        float k_centered = k_values[i] - k_new_mean - model->row_mean[i] + model->total_mean;
+        for (int k = 0; k < tdim; k++) {
+            out_vec[k] += model->alphas[k * N + i] * k_centered;
+        }
+    }
+    
+    GDKfree(k_values);
+}
+
+// ==========================================================================
+// 4. 最后才是 GDK 的主入口函数！(这个时候编译器已经认识前面所有的东西了)
+// ==========================================================================
+gdk_return
+BATcalcpcaapply(BAT **res, BAT *vec_bat, const char *model_str)
+{
+    fprintf(stderr, "[GDK-PCA-APPLY] Starting model parsing...\n");
+    KPCAModel *kpca_model = parse_kpca_model(model_str);
+    if (!kpca_model) {
+        GDKerror("Failed to parse KPCA model string.\n");
+        return GDK_FAIL;
+    }
+    
+    fprintf(stderr, "[GDK-PCA-APPLY] Model parsed successfully! N=%zu, orig_dim=%d, target_dim=%d\n", 
+            (size_t)kpca_model->sample_count, kpca_model->original_dim, kpca_model->target_dim);
+
+    BAT *out_bat = COLnew(vec_bat->hseqbase, TYPE_str, BATcount(vec_bat), TRANSIENT);
+    if (out_bat == NULL) {
+        free_kpca_model(kpca_model);
+        return GDK_FAIL;
+    }
+
+    BATiter vec_bi = bat_iterator(vec_bat);
+    BUN count = BATcount(vec_bat);
+    float *new_vec = GDKmalloc(kpca_model->target_dim * sizeof(float));
+    char out_str[2048]; 
+
+    fprintf(stderr, "[GDK-PCA-APPLY] Starting projection loop for %zu vectors...\n", (size_t)count);
+
+    for (BUN i = 0; i < count; i++) {
+        const blob *b = (const blob *) BUNtvar(vec_bi, i);
+        
+        // 🛡️ 架构师的绝对防御：如果这一行是 SQL NULL，直接输出 NULL 并跳过计算！
+        if (b == NULL || is_blob_nil(b)) {
+            if (BUNappend(out_bat, str_nil, false) != GDK_SUCCEED) {
+                free_kpca_model(kpca_model);
+                GDKfree(new_vec);
+                BBPunfix(out_bat->batCacheid);
+                bat_iterator_end(&vec_bi);
+                return GDK_FAIL;
+            }
+            continue; // 成功追加 NULL 后，直接跳入下一行
+        }
+
+        // 走到这里说明是有真实数据的，正常解包和计算
+        float *input_floats = (float *)b->data; 
+
+        project_single_vector(input_floats, kpca_model, new_vec);
+
+        char *ptr = out_str;
+        for(int k = 0; k < kpca_model->target_dim; k++) {
+            ptr += sprintf(ptr, "%f%s", new_vec[k], (k == kpca_model->target_dim - 1) ? "" : ",");
+        }
+        
+        if (BUNappend(out_bat, out_str, false) != GDK_SUCCEED) {
+            free_kpca_model(kpca_model);
+            GDKfree(new_vec);
+            BBPunfix(out_bat->batCacheid);
+            bat_iterator_end(&vec_bi);
+            return GDK_FAIL;
+        }
+    }
+
+    bat_iterator_end(&vec_bi);
+    GDKfree(new_vec);
+    free_kpca_model(kpca_model);
+
+    *res = out_bat;
+    return GDK_SUCCEED;
+}

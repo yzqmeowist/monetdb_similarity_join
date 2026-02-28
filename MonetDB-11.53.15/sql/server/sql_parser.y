@@ -787,7 +787,7 @@ SQLCODE SQLERROR UNDER WHENEVER
 %token <sval> DOT
 /* compression similarity join, pca*/
 %token <sval> PCATRAIN
-/* %token <sval> PCA_APPLY */
+%token <sval> PCAAPPLY
 
 /* operators (highest precedence at the end) */
 %left OUTER_UNION UNION EXCEPT
@@ -4626,10 +4626,16 @@ scalar_exp:
 	/* compression similarity join, pca */
 	| PCATRAIN '(' scalar_exp ',' scalar_exp ')'
     {	dlist *l = L();
-			append_symbol(l, $3);        /* schema name */
+			append_symbol(l, $3);        /* column name */
 			append_symbol(l, $5);            /* target dim */
 			
 			$$ = symbol_create_list(m->sa, SQL_PCATRAIN, l);}
+	| PCAAPPLY '(' scalar_exp ',' scalar_exp ')'
+    {	dlist *l = L();
+			append_symbol(l, $3);        /* column name */
+			append_symbol(l, $5);            /* model result(the clob) */
+			
+			$$ = symbol_create_list(m->sa, SQL_PCAAPPLY, l);}
 	|  DEFAULT { $$ = _symbol_create(SQL_DEFAULT, NULL ); }
 	;
 

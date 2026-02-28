@@ -655,7 +655,9 @@ scanner_init_keywords(void)
 	failed += keywords_insert("GREATEST", MARGFUNC);
 
 	failed += keywords_insert("dot", DOT);
+	//compression similarity join, pca
 	failed += keywords_insert("pcatrain", PCATRAIN);
+	failed += keywords_insert("pcaapply", PCAAPPLY);
 
 	return failed;
 }

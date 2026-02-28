@@ -5332,35 +5332,47 @@ rel_value_exp2(sql_query *query, sql_rel **rel, symbol *se, int f, exp_kind ek)
 
     return res_exp;
   }
-	// case SQL_PCA_APPLY: {
-  //   dlist *l = se->data.lval;
-  //   sql_exp *col_exp;
-  //   sql_exp *model_exp;
+	case SQL_PCAAPPLY: {
+    dlist *l = se->data.lval;
+    sql_exp *l_exp, *r_exp;
+    sql_subfunc *fnc;
 
-  //   /* 解析参数：第一个是列，第二个是模型名 */
-  //   if (!(col_exp = rel_value_exp(query, rel, l->h->data.sym, f, ek)))
-  //       return NULL;
+    fprintf(stderr, "\n[DEBUG-BIND] 1. SQL_PCAAPPLY parsing started\n");
+    fflush(stderr);
+
+    /* 1. 解析第一个参数 (待降维的特征列) */
+    if (!(l_exp = rel_value_exp(query, rel, l->h->data.sym, f, ek))) {
+        return NULL;
+    }
     
-  //   /* 第二个参数是模型名（标识符），需要特殊处理 */
-  //   /* 这里模型名应该是一个字符串常量，或者是一个标识符 */
-  //   symbol *model_sym = l->h->next->data.sym;
+    /* 2. 解析第二个参数 (模型 CLOB 字符串) */
+    if (!(r_exp = rel_value_exp(query, rel, l->h->next->data.sym, f, ek))) {
+        return NULL;
+    }
+
+    fprintf(stderr, "[DEBUG-BIND] 2. Arguments parsed successfully.\n");
+    fflush(stderr);
+
+    /* 3. 【核心区别】安全查找函数：我们要找的是普通的标量函数 (F_FUNC) */
+    fnc = sql_bind_func(sql, "sys", "pcaapply", exp_subtype(l_exp), exp_subtype(r_exp), F_FUNC, false, false);
     
-  //   /* 如果是字符串常量或标识符，创建对应的表达式 */
-  //   if (model_sym->token == SQL_STRING) {
-  //       model_exp = exp_atom(sql->sa, model_sym->data.sval);
-  //   } else if (model_sym->token == SQL_IDENT) {
-  //       /* 将标识符转换为字符串常量 */
-  //       model_exp = exp_atom(sql->sa, model_sym->data.sval);
-  //   } else {
-  //       /* 尝试作为表达式处理 */
-  //       if (!(model_exp = rel_value_exp(query, rel, model_sym, f, ek)))
-  //           return NULL;
-  //   }
+    if (!fnc) {
+        fprintf(stderr, "[DEBUG-BIND] 💥 FATAL: pcaapply scalar function not found in catalog!\n");
+        fflush(stderr);
+        return sql_error(sql, 02, SQLSTATE(42000) "PCA Error: Scalar function 'pcaapply' not found.");
+    }
 
-  //   /* 调用pca_apply函数，返回降维后的向量 */
-  //   return rel_binop_(sql, *rel, col_exp, model_exp, "sys", "pca_apply", card_value, 0);
-	// }
+    fprintf(stderr, "[DEBUG-BIND] 3. Function bound successfully! fnc=%p\n", (void*)fnc);
+    fflush(stderr);
 
+    /* 4. 组装表达式节点：使用 exp_binop (二元操作符) 构建标量计算节点 */
+    sql_exp *res_exp = exp_binop(sql->sa, l_exp, r_exp, fnc);
+    
+    fprintf(stderr, "[DEBUG-BIND] 4. exp_binop node created successfully: %p\n", (void*)res_exp);
+    fflush(stderr);
+
+    return res_exp;
+  }
 	default:
 			return rel_logical_value_exp(query, rel, se, f, ek);
 	}

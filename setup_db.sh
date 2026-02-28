@@ -206,11 +206,16 @@ CREATE TABLE mw (M VARCHAR(10), G VARCHAR(2000));
 COPY INTO uw FROM '$ROOT_DIR/ml-latest-small/uw.csv' USING DELIMITERS ',', '\n', '"';
 COPY INTO mw FROM '$ROOT_DIR/ml-latest-small/mw.csv' USING DELIMITERS ',', '\n', '"';
 
-CREATE TABLE user_model(R CLOB);
-DELETE FROM user_model;
-INSERT INTO user_model SELECT pcatrain(F, CAST(16 AS INTEGER)) FROM uw;
+CREATE TABLE model(R CLOB);
+DELETE FROM model;
+INSERT INTO model SELECT pcatrain(F, CAST(16 AS INTEGER)) FROM uw;
 
-SELECT * FROM user_model;
+CREATE TABLE uw_pca AS SELECT U, pcaapply(F, (SELECT R FROM model LIMIT 1)) AS F_16 FROM uw;
+CREATE TABLE mw_pca AS SELECT M, pcaapply(G, (SELECT R FROM model LIMIT 1)) AS G_16 FROM mw;
+
+SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 5;
+SELECT M FROM uw_pca, mw_pca WHERE U='u2' ORDER BY dot(F_16,G_16) DESC LIMIT 5;
+
 
 
 EOF
@@ -226,3 +231,6 @@ echo "    mclient -d $DB_NAME"
 
 # INSERT INTO mw VALUES ('m1', '[1.9, -1.5]'), ('m2', '[1.1, -2.0]'), 
 #                       ('m4', '[2.1, -0.6]');
+# CREATE TABLE movie_model(R CLOB);
+# DELETE FROM movie_model;
+# INSERT INTO movie_model SELECT pcatrain(G, CAST(16 AS INTEGER)) FROM mw;

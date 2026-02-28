@@ -1479,6 +1479,91 @@ CMDbatPCATRAIN(str *res, const bat *vectors, const bat *target_dim_bat)
     fprintf(stderr, "[PCATRAIN] Done, returning CLOB string.\n");
     return MAL_SUCCEED;
 }
+
+static str 
+CMDbatPCAAPPLY(bat *res, const bat *vectors, const bat *model_bat_id)
+{
+    BAT *vectors_bat = NULL, *vec_bat = NULL, *mod_bat = NULL, *out_bat = NULL;
+    gdk_return err;
+
+    fprintf(stderr, "\n========== PCA APPLY MAL LAYER STARTED ==========\n");
+    fflush(stderr);
+
+    // 1. 获取输入向量 BAT
+    if ((vectors_bat = BATdescriptor(*vectors)) == NULL) {
+        fprintf(stderr, "[PCA APPLY] 💥 FATAL: Failed to get input vectors BAT.\n");
+        fflush(stderr);
+        throw(MAL, "batcalc.pcaapply", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    }
+    fprintf(stderr, "[PCA APPLY] 1. Input vectors BAT acquired (Count: %zu).\n", (size_t)BATcount(vectors_bat));
+    fflush(stderr);
+    
+    // 💥 关键补充：如果传入的是字符串列，先把它解析成二进制 float 向量的 BAT
+    vec_bat = vectors_bat;
+    if (ATOMstorage(vectors_bat->ttype) == TYPE_str) {
+        fprintf(stderr, "[PCA APPLY] 1.5 Input is STRING type. Triggering string-to-vector conversion...\n");
+        fflush(stderr);
+        if (BATcalcstr2vec(&vec_bat, vectors_bat) != GDK_SUCCEED) {
+            fprintf(stderr, "[PCA APPLY] 💥 FATAL: String to vector conversion failed!\n");
+            fflush(stderr);
+            BBPunfix(vectors_bat->batCacheid);
+            throw(MAL, "batcalc.pcaapply", "Failed to convert string to vector");
+        }
+        fprintf(stderr, "[PCA APPLY] 1.5 Conversion successful. Now handling binary float vectors.\n");
+        fflush(stderr);
+    }
+
+    // 2. 获取模型 BAT，并读取第一行的 CLOB 字符串
+    if ((mod_bat = BATdescriptor(*model_bat_id)) == NULL) {
+        fprintf(stderr, "[PCA APPLY] 💥 FATAL: Failed to get model BAT.\n");
+        fflush(stderr);
+        if (vec_bat != vectors_bat) BBPreclaim(vec_bat);
+        BBPunfix(vectors_bat->batCacheid);
+        throw(MAL, "batcalc.pcaapply", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    }
+    
+    BATiter mod_bi = bat_iterator(mod_bat);
+    const char *model_str = (const char *)BUNtvar(mod_bi, 0);
+    
+    // 打印模型字符串的前 30 个字符，用来确认读到的是不是真的模型数据
+    fprintf(stderr, "[PCA APPLY] 2. Model string extracted (Preview: '%.30s...').\n", model_str);
+    fflush(stderr);
+
+    // 3. 🛡️ 调用 GDK 层的核心算法！
+    fprintf(stderr, "[PCA APPLY] 3. Calling GDK core algorithm BATcalcpcaapply...\n");
+    fflush(stderr);
+    
+    err = BATcalcpcaapply(&out_bat, vec_bat, model_str);
+
+    bat_iterator_end(&mod_bi);
+    BBPunfix(mod_bat->batCacheid);
+
+    // 4. 检查 GDK 层是否报错
+    if (err != GDK_SUCCEED || out_bat == NULL) {
+        fprintf(stderr, "[PCA APPLY] 💥 FATAL: GDK core algorithm returned GDK_FAIL or NULL BAT.\n");
+        fflush(stderr);
+        if (vec_bat != vectors_bat) BBPreclaim(vec_bat);
+        BBPunfix(vectors_bat->batCacheid);
+        throw(MAL, "batcalc.pca_apply", "GDK core algorithm failed during PCA Apply.");
+    }
+
+    fprintf(stderr, "[PCA APPLY] 4. GDK algorithm finished successfully! Output BAT generated.\n");
+    fflush(stderr);
+
+    // 清理临时输入 BAT
+    if (vec_bat != vectors_bat) BBPreclaim(vec_bat);
+    BBPunfix(vectors_bat->batCacheid);
+
+    // 5. 成功，返回新的 BAT ID
+    *res = out_bat->batCacheid;
+    BBPkeepref(out_bat);
+    
+    fprintf(stderr, "========== PCA APPLY MAL LAYER COMPLETED ==========\n\n");
+    fflush(stderr);
+
+    return MAL_SUCCEED;
+}
+
 #include "mel.h"
 
 static str
@@ -2137,6 +2222,17 @@ batcalc_init(void)
   err += melFunction(true, "batcalc", "pcatrain", (MALfcn)&CMDbatPCATRAIN, "CMDbatPCATRAIN", false, 
                      "PCA Train", 1, 3, 
                      pca_ret_str, pca_arg_str, pca_arg_int);
+
+	mel_func_arg apply_ret_str = { .type = TYPE_str, .isbat = 1 }; 
+  
+  // 参数1：一整列待处理的特征向量 (isbat = 1)
+  mel_func_arg apply_arg_str1 = { .type = TYPE_str, .isbat = 1 }; 
+  // 参数2：模型字符串 (虽然逻辑上是一个值，但底层会以 BAT 的形式传进来，isbat = 1)
+  mel_func_arg apply_arg_str2 = { .type = TYPE_str, .isbat = 1 }; 
+
+  err += melFunction(true, "batcalc", "pcaapply", (MALfcn)&CMDbatPCAAPPLY, "CMDbatPCAAPPLY", false, 
+                     "Apply PCA model to data", 1, 3, 
+                     apply_ret_str, apply_arg_str1, apply_arg_str2);
 
 	return MAL_SUCCEED;
 }
