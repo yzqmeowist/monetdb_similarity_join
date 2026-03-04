@@ -206,9 +206,10 @@ CREATE TABLE mw (M VARCHAR(10), G VARCHAR(2000));
 COPY INTO uw FROM '$ROOT_DIR/ml-latest-small/uw.csv' USING DELIMITERS ',', '\n', '"';
 COPY INTO mw FROM '$ROOT_DIR/ml-latest-small/mw.csv' USING DELIMITERS ',', '\n', '"';
 
-CREATE TABLE model(R CLOB);SS
+
+CREATE TABLE model(R CLOB);
 DELETE FROM model;
-INSERT INTO model SELECT pcatrain(F, CAST(58 AS INTEGER)) FROM uw;
+INSERT INTO model SELECT pcatrain(F, CAST(32 AS INTEGER)) FROM uw;
 
 DROP TABLE IF EXISTS uw_pca;
 CREATE TABLE uw_pca AS SELECT U, pcaapply(F, (SELECT R FROM model LIMIT 1)) AS F_32 FROM uw;
@@ -217,10 +218,22 @@ DROP TABLE IF EXISTS mw_pca;
 CREATE TABLE mw_pca AS SELECT M, pcaapply(G, (SELECT R FROM model LIMIT 1)) AS G_32 FROM mw;
 
 
+--Baseline
+SELECT '--- similarity join ---' AS step;
 SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 10;
 
-SELECT M FROM uw_pca, mw_pca WHERE U='u2' ORDER BY dot(F_32,G_32) DESC LIMIT 10;
-
+-- Task 2: Filter & Refine
+SELECT '--- PCA similarity join---' AS step;
+SELECT mw.M
+FROM (
+    SELECT mw_pca.M
+    FROM mw_pca 
+    ORDER BY dot((SELECT F_32 FROM uw_pca WHERE U='u2'), mw_pca.G_32) DESC
+    LIMIT 2000
+) AS c
+JOIN mw ON c.M = mw.M
+ORDER BY dot((SELECT F FROM uw WHERE U='u2'), mw.G) DESC
+LIMIT 10;
 
 
 EOF
