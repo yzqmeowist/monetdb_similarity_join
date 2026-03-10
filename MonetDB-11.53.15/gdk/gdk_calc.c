@@ -4880,8 +4880,8 @@ gdk_return
 BATcalcsimilarityjoin(BAT **r1, BAT **r2, const BAT *b1, const BAT *b2, dbl threshold)
 {
 	BAT *bn1 = NULL, *bn2 = NULL;
-	BATiter bi1 = bat_iterator(b1);
-	BATiter bi2 = bat_iterator(b2);
+	BATiter bi1 = bat_iterator((BAT *)b1);
+	BATiter bi2 = bat_iterator((BAT *)b2);
 	oid i, j;
 	oid n1 = BATcount(b1);
 	oid n2 = BATcount(b2);
@@ -4956,8 +4956,8 @@ gdk_return
 BATcalcdot(BAT **res, const BAT *b1, const BAT *b2)
 {
 	BAT *bn = NULL;
-	BATiter bi1 = bat_iterator(b1);
-	BATiter bi2 = bat_iterator(b2);
+	BATiter bi1 = bat_iterator((BAT *)b1);
+	BATiter bi2 = bat_iterator((BAT *)b2);
 	oid i;
 	oid n = BATcount(b1);
 
