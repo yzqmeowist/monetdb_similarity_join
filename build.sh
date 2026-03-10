@@ -16,7 +16,7 @@ cd "$BUILD_DIR"
 cmake -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" ..
 
 echo "Building..."
-cmake --build .
+cmake --build . -j$(nproc)
 cmake --build . --target install
 
 echo "Done! Installed to: $INSTALL_DIR"

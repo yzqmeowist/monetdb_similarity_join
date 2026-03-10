@@ -2811,6 +2811,39 @@ stmt_join2(backend *be, stmt *l, stmt *ra, stmt *rb, int cmp, int anti, int symm
 }
 
 stmt *
+stmt_similarity_join(backend *be, stmt *l, stmt *r, stmt *threshold)
+{
+	MalBlkPtr mb = be->mb;
+	InstrPtr q = NULL;
+
+	if (l == NULL || r == NULL || threshold == NULL)
+		return NULL;
+
+	q = newStmt(mb, "batcalc", "similarity_join");
+	if (q == NULL)
+		return NULL;
+	setArgType(mb, q, 0, newBatType(TYPE_oid));
+	q = pushReturn(mb, q, newTmpVariable(mb, newBatType(TYPE_oid)));
+	q = pushArgument(mb, q, l->nr);
+	q = pushArgument(mb, q, r->nr);
+	q = pushArgument(mb, q, threshold->nr);
+	pushInstruction(mb, q);
+
+	stmt *s = stmt_create(be->mvc->sa, st_join);
+	if (s == NULL)
+		return NULL;
+
+	s->op1 = l;
+	s->op2 = r;
+	s->op3 = threshold;
+	s->nrcols = 2;
+	s->nr = getDestVar(q);
+	s->q = q;
+	s->reduce = 1;
+	return s;
+}
+
+stmt *
 stmt_genjoin(backend *be, stmt *l, stmt *r, sql_subfunc *op, int anti, int swapped)
 {
 	MalBlkPtr mb = be->mb;

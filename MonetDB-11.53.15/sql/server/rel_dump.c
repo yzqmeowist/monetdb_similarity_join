@@ -552,17 +552,42 @@ rel_print_rel(mvc *sql, stream  *fout, sql_rel *rel, int depth, list *refs, int 
 	case op_inter:
 	case op_except:
 		r = "join";
-		if (rel->op == op_left)
-			r = rel->attr?"left outer group join":"left outer join";
-		else if (rel->op == op_right)
-			r = "right outer join";
-		else if (rel->op == op_full)
-			r = "full outer join";
-		else if (rel->op == op_semi)
-			r = "semijoin";
-		else if (rel->op == op_anti)
-			r = "antijoin";
-		else if (rel->op == op_union)
+		if (is_join(rel->op) || is_semi(rel->op)) {
+			if (rel->flag & JOIN_SIMILARITY) {
+				r = "similarity join";
+			} else if (rel->exps) {
+				for (node *n = rel->exps->h; n; n = n->next) {
+					sql_exp *e = n->data;
+					if (e->type == e_cmp && (e->flag == cmp_gt || e->flag == cmp_gte)) {
+						sql_exp *le = e->l;
+						if (le->type == e_func) {
+							sql_subfunc *f = le->f;
+							if (f && f->func && strcmp(f->func->base.name, "dot") == 0) {
+								r = "similarity join";
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if (strcmp(r, "join") == 0) {
+			if (rel->op == op_left)
+				r = rel->attr?"left outer group join":"left outer join";
+			else if (rel->op == op_right)
+				r = "right outer join";
+			else if (rel->op == op_full)
+				r = "full outer join";
+			else if (rel->op == op_semi)
+				r = "semi join";
+			else if (rel->op == op_anti)
+				r = "anti join";
+		}
+		
+		if (strcmp(r, "join") == 0 || strcmp(r, "similarity join") == 0 || strstr(r, "join")) {
+			/* stay with r */
+		} else if (rel->op == op_union)
 			r = "union";
 		else if (rel->op == op_inter)
 			r = "intersect";

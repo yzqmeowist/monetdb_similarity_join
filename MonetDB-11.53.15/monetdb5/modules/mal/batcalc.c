@@ -1265,6 +1265,70 @@ CMDifthen(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
 	return MAL_SUCCEED;
 }
 
+static str
+CMDbatSIMJOIN(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+	bat *r1 = getArgReference_bat(stk, pci, 0);
+	bat *r2 = getArgReference_bat(stk, pci, 1);
+	bat lid = *getArgReference_bat(stk, pci, 2);
+	bat rid = *getArgReference_bat(stk, pci, 3);
+	dbl threshold = *getArgReference_dbl(stk, pci, 4);
+	BAT *bl = NULL, *br = NULL, *bn1 = NULL, *br1 = NULL;
+	str msg = MAL_SUCCEED;
+
+	(void)cntxt;
+	(void)mb;
+	if ((bl = BATdescriptor(lid)) == NULL || (br = BATdescriptor(rid)) == NULL) {
+		msg = createException(MAL, "batcalc.similarity_join", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+		goto bailout;
+	}
+
+	if (BATcalcsimilarityjoin(&bn1, &br1, bl, br, threshold) != GDK_SUCCEED) {
+		msg = createException(MAL, "batcalc.similarity_join", GDK_EXCEPTION);
+		goto bailout;
+	}
+
+	*r1 = bn1->batCacheid;
+	BBPkeepref(bn1);
+	*r2 = br1->batCacheid;
+	BBPkeepref(br1);
+
+bailout:
+	if (bl) BBPunfix(bl->batCacheid);
+	if (br) BBPunfix(br->batCacheid);
+	return msg;
+}
+
+static str
+CMDbatDOT(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+	bat *ret = getArgReference_bat(stk, pci, 0);
+	bat lid = *getArgReference_bat(stk, pci, 1);
+	bat rid = *getArgReference_bat(stk, pci, 2);
+	BAT *bl = NULL, *br = NULL, *bn = NULL;
+	str msg = MAL_SUCCEED;
+
+	(void)cntxt;
+	(void)mb;
+	if ((bl = BATdescriptor(lid)) == NULL || (br = BATdescriptor(rid)) == NULL) {
+		msg = createException(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+		goto bailout;
+	}
+
+	if (BATcalcdot(&bn, bl, br) != GDK_SUCCEED) {
+		msg = createException(MAL, "batcalc.dot", GDK_EXCEPTION);
+		goto bailout;
+	}
+
+	*ret = bn->batCacheid;
+	BBPkeepref(bn);
+
+bailout:
+	if (bl) BBPunfix(bl->batCacheid);
+	if (br) BBPunfix(br->batCacheid);
+	return msg;
+}
+
 #include "mel.h"
 
 static str
@@ -1962,6 +2026,9 @@ static mel_func batcalc_init_funcs[] = {
  pattern("batcalc", "ifthenelse", CMDifthen, false, "If-then-else operation to assemble a conditional result", args(1,4, batargany("",1),batarg("b",bit),batargany("b1",1),argany("v2",1))),
  pattern("batcalc", "ifthenelse", CMDifthen, false, "If-then-else operation to assemble a conditional result", args(1,4, batargany("",1),batarg("b",bit),argany("v1",1),batargany("b2",1))),
  pattern("batcalc", "ifthenelse", CMDifthen, false, "If-then-else operation to assemble a conditional result", args(1,4, batargany("",1),batarg("b",bit),batargany("b1",1),batargany("b2",1))),
+
+ pattern("batcalc", "similarity_join", CMDbatSIMJOIN, false, "Similarity join between two vectors", args(2,5, batarg("",oid),batarg("",oid),batargany("l",1),batargany("r",1),arg("threshold",dbl))),
+ pattern("batcalc", "dot", CMDbatDOT, false, "Dot product between two vectors", args(1,3, batarg("",dbl),batargany("l",1),batargany("r",1))),
 
  { .imp=NULL }
 
