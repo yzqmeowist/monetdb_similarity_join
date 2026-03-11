@@ -5022,3 +5022,69 @@ fail:
 	bat_iterator_end(&bi2);
 	return GDK_FAIL;
 }
+
+gdk_return
+BATcalcdotcst(BAT **res, const BAT *b, const ValRecord *v)
+{
+	BAT *bn = NULL;
+	BATiter bi = bat_iterator((BAT *)b);
+	oid i, n = BATcount(b);
+	blob *blob_cst = NULL;
+	bool free_cst = false;
+
+	if (v->vtype == TYPE_str) {
+		blob_cst = str_to_blob_vector(v->val.sval, NULL);
+		free_cst = true;
+	} else if (v->vtype == TYPE_blob) {
+		blob_cst = v->val.bval;
+	}
+
+	bn = COLnew(0, TYPE_dbl, n, TRANSIENT);
+	if (bn == NULL) {
+		if (free_cst) GDKfree(blob_cst);
+		bat_iterator_end(&bi);
+		return GDK_FAIL;
+	}
+
+	for (i = 0; i < n; i++) {
+		const void *val = BUNtail(bi, i);
+		blob *blob_row = NULL;
+		bool free_row = false;
+
+		if (b->ttype == TYPE_str) {
+			blob_row = str_to_blob_vector((const char *) val, NULL);
+			free_row = true;
+		} else if (b->ttype == TYPE_blob) {
+			blob_row = (blob *) val;
+		}
+
+		dbl d = dbl_nil;
+		if (blob_cst && !is_blob_nil(blob_cst) && blob_row && !is_blob_nil(blob_row)) {
+			d = blob_dot_product(blob_cst, blob_row);
+		}
+
+		if (BUNappend(bn, &d, false) != GDK_SUCCEED) {
+			if (free_row) GDKfree(blob_row);
+			if (free_cst) GDKfree(blob_cst);
+			goto fail;
+		}
+		if (free_row) GDKfree(blob_row);
+	}
+
+	if (free_cst) GDKfree(blob_cst);
+	bat_iterator_end(&bi);
+	BATsetcount(bn, n);
+	*res = bn;
+	return GDK_SUCCEED;
+
+fail:
+	if (bn) BBPreclaim(bn);
+	bat_iterator_end(&bi);
+	return GDK_FAIL;
+}
+
+gdk_return
+BATcstcalcdot(BAT **res, const ValRecord *v, const BAT *b)
+{
+	return BATcalcdotcst(res, b, v);
+}

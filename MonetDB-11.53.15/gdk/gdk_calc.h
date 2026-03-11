@@ -172,3 +172,5 @@ gdk_export gdk_return GDKanalytical_str_group_concat(BAT *r, BAT *p, BAT *o, BAT
 
 gdk_export gdk_return BATcalcsimilarityjoin(BAT **r1, BAT **r2, const BAT *b1, const BAT *b2, dbl threshold);
 gdk_export gdk_return BATcalcdot(BAT **res, const BAT *b1, const BAT *b2);
+gdk_export gdk_return BATcalcdotcst(BAT **res, const BAT *b, const ValRecord *v);
+gdk_export gdk_return BATcstcalcdot(BAT **res, const ValRecord *v, const BAT *b);

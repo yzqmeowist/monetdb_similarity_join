@@ -558,9 +558,10 @@ rel_print_rel(mvc *sql, stream  *fout, sql_rel *rel, int depth, list *refs, int 
 			} else if (rel->exps) {
 				for (node *n = rel->exps->h; n; n = n->next) {
 					sql_exp *e = n->data;
+					/* Only count as similarity join if dot is used in a comparison (filter) */
 					if (e->type == e_cmp && (e->flag == cmp_gt || e->flag == cmp_gte)) {
 						sql_exp *le = e->l;
-						if (le->type == e_func) {
+						if (le && le->type == e_func) {
 							sql_subfunc *f = le->f;
 							if (f && f->func && strcmp(f->func->base.name, "dot") == 0) {
 								r = "similarity join";

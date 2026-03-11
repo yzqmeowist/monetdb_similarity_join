@@ -1329,6 +1329,64 @@ bailout:
 	return msg;
 }
 
+static str
+CMDbatDOTcst(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+	bat *ret = getArgReference_bat(stk, pci, 0);
+	bat lid = *getArgReference_bat(stk, pci, 1);
+	ValPtr v = getArgReference(stk, pci, 2);
+	BAT *bl = NULL, *bn = NULL;
+	str msg = MAL_SUCCEED;
+
+	(void)cntxt;
+	(void)mb;
+	if ((bl = BATdescriptor(lid)) == NULL) {
+		msg = createException(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+		goto bailout;
+	}
+
+	if (BATcalcdotcst(&bn, bl, v) != GDK_SUCCEED) {
+		msg = createException(MAL, "batcalc.dot", GDK_EXCEPTION);
+		goto bailout;
+	}
+
+	*ret = bn->batCacheid;
+	BBPkeepref(bn);
+
+bailout:
+	if (bl) BBPunfix(bl->batCacheid);
+	return msg;
+}
+
+static str
+CMDcstDOTbat(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+	bat *ret = getArgReference_bat(stk, pci, 0);
+	ValPtr v = getArgReference(stk, pci, 1);
+	bat rid = *getArgReference_bat(stk, pci, 2);
+	BAT *br = NULL, *bn = NULL;
+	str msg = MAL_SUCCEED;
+
+	(void)cntxt;
+	(void)mb;
+	if ((br = BATdescriptor(rid)) == NULL) {
+		msg = createException(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+		goto bailout;
+	}
+
+	if (BATcstcalcdot(&bn, v, br) != GDK_SUCCEED) {
+		msg = createException(MAL, "batcalc.dot", GDK_EXCEPTION);
+		goto bailout;
+	}
+
+	*ret = bn->batCacheid;
+	BBPkeepref(bn);
+
+bailout:
+	if (br) BBPunfix(br->batCacheid);
+	return msg;
+}
+
 #include "mel.h"
 
 static str
@@ -2029,6 +2087,8 @@ static mel_func batcalc_init_funcs[] = {
 
  pattern("batcalc", "similarity_join", CMDbatSIMJOIN, false, "Similarity join between two vectors", args(2,5, batarg("",oid),batarg("",oid),batargany("l",1),batargany("r",1),arg("threshold",dbl))),
  pattern("batcalc", "dot", CMDbatDOT, false, "Dot product between two vectors", args(1,3, batarg("",dbl),batargany("l",1),batargany("r",1))),
+ pattern("batcalc", "dot", CMDbatDOTcst, false, "Dot product between vector and constant", args(1,3, batarg("",dbl),batargany("l",1),argany("v",1))),
+ pattern("batcalc", "dot", CMDcstDOTbat, false, "Dot product between constant and vector", args(1,3, batarg("",dbl),argany("v",1),batargany("r",1))),
 
  { .imp=NULL }
 

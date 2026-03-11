@@ -5277,9 +5277,6 @@ rel_value_exp2(sql_query *query, sql_rel **rel, symbol *se, int f, exp_kind ek)
 		if (!(r_exp = rel_value_exp(query, rel, l->h->next->data.sym, f, ek)))
 			return NULL;
 
-		if (rel && *rel && is_join((*rel)->op))
-			(*rel)->flag |= JOIN_SIMILARITY;
-
 		return rel_binop_(sql, rel ? *rel : NULL, l_exp, r_exp, "sys", "dot", card_value, 0);
 	}
 	default:

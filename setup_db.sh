@@ -66,11 +66,26 @@ DROP TABLE IF EXISTS mw;
 CREATE TABLE uw (U VARCHAR(10), F VARCHAR(2000));
 CREATE TABLE mw (M VARCHAR(10), G VARCHAR(2000));
 
-COPY INTO uw FROM '$ROOT_DIR/ml-latest-small/uw.csv' USING DELIMITERS ',', '\n', '"';
-COPY INTO mw FROM '$ROOT_DIR/ml-latest-small/mw.csv' USING DELIMITERS ',', '\n', '"';
+# COPY INTO uw FROM '$ROOT_DIR/ml-latest-small/uw.csv' USING DELIMITERS ',', '\n', '"';
+# COPY INTO mw FROM '$ROOT_DIR/ml-latest-small/mw.csv' USING DELIMITERS ',', '\n', '"';
 
-SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 5;
-SELECT U,M FROM uw, mw WHERE dot(F,G) > 3;
+INSERT INTO uw VALUES ('u2', '[1.0, -0.5]'), ('u3', '[2.0, -1.0]'), 
+                      ('u4', '[4.2, 1.3]'),  ('u5', '[1.0, -0.7]');
+
+INSERT INTO mw VALUES ('m1', '[1.9, -1.5]'), ('m2', '[1.1, -2.0]'), 
+                      ('m4', '[2.1, -0.6]');
+
+EXPLAIN SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 5;
+EXPLAIN SELECT U,M FROM uw, mw WHERE dot(F,G) > 3;
+
+# self-similarity join
+EXPLAIN SELECT a.U, b.U FROM uw AS a, uw AS b WHERE a.U < b.U AND dot(a.F, b.F) > 0.95;
+
+# similarity aggregation
+EXPLAIN SELECT U, AVG(dot(F,G)) FROM uw, mw GROUP BY U;
+
+# Mixed
+EXPLAIN SELECT U, M FROM uw, mw WHERE M='m1' AND U LIKE 'u%' AND dot(F,G) > 1.5;
 
 EOF
 
@@ -80,8 +95,4 @@ echo "    export DOTMONETDBFILE=\"$AUTH_FILE\""
 echo "    export PATH=\"$BIN_DIR:\$PATH\""
 echo "    mclient -d $DB_NAME"
 
-# INSERT INTO uw VALUES ('u2', '[1.0, -0.5]'), ('u3', '[2.0, -1.0]'), 
-#                       ('u4', '[4.2, 1.3]'),  ('u5', '[1.0, -0.7]');
 
-# INSERT INTO mw VALUES ('m1', '[1.9, -1.5]'), ('m2', '[1.1, -2.0]'), 
-#                       ('m4', '[2.1, -0.6]');
