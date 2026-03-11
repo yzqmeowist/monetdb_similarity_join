@@ -5023,21 +5023,27 @@ fail:
 	return GDK_FAIL;
 }
 
+static blob *
+val_to_blob_vector(const ValRecord *v, bool *free_blob)
+{
+	*free_blob = false;
+	if (v->vtype == TYPE_str) {
+		*free_blob = true;
+		return str_to_blob_vector(v->val.sval, NULL);
+	} else if (v->vtype == TYPE_blob) {
+		return (blob *) v->val.pval;
+	}
+	return NULL;
+}
+
 gdk_return
 BATcalcdotcst(BAT **res, const BAT *b, const ValRecord *v)
 {
 	BAT *bn = NULL;
 	BATiter bi = bat_iterator((BAT *)b);
 	oid i, n = BATcount(b);
-	blob *blob_cst = NULL;
 	bool free_cst = false;
-
-	if (v->vtype == TYPE_str) {
-		blob_cst = str_to_blob_vector(v->val.sval, NULL);
-		free_cst = true;
-	} else if (v->vtype == TYPE_blob) {
-		blob_cst = (blob *) v->val.pval;
-	}
+	blob *blob_cst = val_to_blob_vector(v, &free_cst);
 
 	bn = COLnew(0, TYPE_dbl, n, TRANSIENT);
 	if (bn == NULL) {
@@ -5087,4 +5093,30 @@ gdk_return
 BATcstcalcdot(BAT **res, const ValRecord *v, const BAT *b)
 {
 	return BATcalcdotcst(res, b, v);
+}
+
+gdk_return
+VALcalcdot(ValPtr ret, const ValRecord *lft, const ValRecord *rgt)
+{
+	blob *blob_l = NULL, *blob_r = NULL;
+	bool free_l = false, free_r = false;
+
+	if ((lft->vtype != TYPE_str && lft->vtype != TYPE_blob) ||
+	    (rgt->vtype != TYPE_str && rgt->vtype != TYPE_blob)) {
+		GDKerror("VALcalcdot: input values must be strings or blobs\n");
+		return GDK_FAIL;
+	}
+
+	*ret = (ValRecord) {.vtype = TYPE_dbl, .bat = false};
+	ret->val.dval = dbl_nil;
+
+	blob_l = val_to_blob_vector(lft, &free_l);
+	blob_r = val_to_blob_vector(rgt, &free_r);
+
+	if (blob_l && !is_blob_nil(blob_l) && blob_r && !is_blob_nil(blob_r))
+		ret->val.dval = blob_dot_product(blob_l, blob_r);
+
+	if (free_l) GDKfree(blob_l);
+	if (free_r) GDKfree(blob_r);
+	return GDK_SUCCEED;
 }

@@ -1387,6 +1387,19 @@ bailout:
 	return msg;
 }
 
+static str
+CMDcstDOTcst(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+	(void) cntxt;
+	(void) mb;
+
+	if (VALcalcdot(&stk->stk[getArg(pci, 0)],
+		       &stk->stk[getArg(pci, 1)],
+		       &stk->stk[getArg(pci, 2)]) != GDK_SUCCEED)
+		return mythrow(MAL, "batcalc.dot", OPERATION_FAILED);
+	return MAL_SUCCEED;
+}
+
 #include "mel.h"
 
 static str
@@ -2091,6 +2104,8 @@ static mel_func batcalc_init_funcs[] = {
  pattern("batcalc", "dot", CMDbatDOTcst, false, "Dot product between blob vector and constant", args(1,3, batarg("",dbl),batarg("l",blob),arg("v",blob))),
  pattern("batcalc", "dot", CMDcstDOTbat, false, "Dot product between string constant and vector", args(1,3, batarg("",dbl),arg("v",str),batarg("r",str))),
  pattern("batcalc", "dot", CMDcstDOTbat, false, "Dot product between blob constant and vector", args(1,3, batarg("",dbl),arg("v",blob),batarg("r",blob))),
+ pattern("batcalc", "dot", CMDcstDOTcst, false, "Dot product between string constants", args(1,3, arg("",dbl),arg("l",str),arg("r",str))),
+ pattern("batcalc", "dot", CMDcstDOTcst, false, "Dot product between blob constants", args(1,3, arg("",dbl),arg("l",blob),arg("r",blob))),
 
  { .imp=NULL }
 

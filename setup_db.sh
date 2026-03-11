@@ -87,6 +87,10 @@ SELECT U, AVG(dot(F,G)) FROM uw, mw GROUP BY U;
 # Mixed
 SELECT U, M FROM uw, mw WHERE M='m1' AND U LIKE 'u%' AND dot(F,G) > 1.5;
 
+# dot(scalar,scalar)
+SELECT DOT('[1,2]','[3,4]') AS s;
+SELECT DOT('[1,2]','[3]') AS s;
+
 EOF
 
 echo "Done!"

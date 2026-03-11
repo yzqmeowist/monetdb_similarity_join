@@ -174,3 +174,4 @@ gdk_export gdk_return BATcalcsimilarityjoin(BAT **r1, BAT **r2, const BAT *b1, c
 gdk_export gdk_return BATcalcdot(BAT **res, const BAT *b1, const BAT *b2);
 gdk_export gdk_return BATcalcdotcst(BAT **res, const BAT *b, const ValRecord *v);
 gdk_export gdk_return BATcstcalcdot(BAT **res, const ValRecord *v, const BAT *b);
+gdk_export gdk_return VALcalcdot(ValPtr ret, const ValRecord *lft, const ValRecord *rgt);
