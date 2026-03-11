@@ -2022,6 +2022,25 @@ batcalc_init(void)
 		    }
 		}
 	}
+	
+	/* similarity join*/
+	// mel_func_arg dot_ret = { .type = TYPE_dbl, .isbat = 1 }; 
+	// mel_func_arg dot_arg = { .type = TYPE_str, .isbat = 1 }; 
+	// err += melFunction(false, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, "Compute dot product of two string vectors", 1, 3, dot_ret, dot_arg, dot_arg);
+	// err += melFunction(false, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, "Compute dot product with candidate lists", 1, 5, dot_ret, dot_arg, dot_arg, cand, cand);
+	mel_func_arg arg_dbl_bat  = { .type = TYPE_dbl,  .isbat = 1 };
+    mel_func_arg arg_blob_bat = { .type = TYPE_blob, .isbat = 1 };
+    mel_func_arg arg_str_bat  = { .type = TYPE_str,  .isbat = 1 };
+    err += melFunction(true, "batcalc", "str_to_vec", (MALfcn)&CMDbatSTR2VEC, "CMDbatSTR2VEC", false, 
+                       "Convert string vector to binary blob", 
+                       1, 2, arg_blob_bat, arg_str_bat);
+	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, 
+                       "Compute dot product of two blob vectors", 
+                       1, 3, arg_dbl_bat, arg_blob_bat, arg_blob_bat);
+	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT_auto, "CMDbatDOT_auto", false, 
+                       "Compute dot product of two string vectors (auto-convert)", 
+                       1, 3, arg_dbl_bat, arg_str_bat, arg_str_bat);
+
 	return MAL_SUCCEED;
 }
 
