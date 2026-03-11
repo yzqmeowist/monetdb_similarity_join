@@ -2087,8 +2087,10 @@ static mel_func batcalc_init_funcs[] = {
 
  pattern("batcalc", "similarity_join", CMDbatSIMJOIN, false, "Similarity join between two vectors", args(2,5, batarg("",oid),batarg("",oid),batargany("l",1),batargany("r",1),arg("threshold",dbl))),
  pattern("batcalc", "dot", CMDbatDOT, false, "Dot product between two vectors", args(1,3, batarg("",dbl),batargany("l",1),batargany("r",1))),
- pattern("batcalc", "dot", CMDbatDOTcst, false, "Dot product between vector and constant", args(1,3, batarg("",dbl),batargany("l",1),argany("v",1))),
- pattern("batcalc", "dot", CMDcstDOTbat, false, "Dot product between constant and vector", args(1,3, batarg("",dbl),argany("v",1),batargany("r",1))),
+ pattern("batcalc", "dot", CMDbatDOTcst, false, "Dot product between string vector and constant", args(1,3, batarg("",dbl),batarg("l",str),arg("v",str))),
+ pattern("batcalc", "dot", CMDbatDOTcst, false, "Dot product between blob vector and constant", args(1,3, batarg("",dbl),batarg("l",blob),arg("v",blob))),
+ pattern("batcalc", "dot", CMDcstDOTbat, false, "Dot product between string constant and vector", args(1,3, batarg("",dbl),arg("v",str),batarg("r",str))),
+ pattern("batcalc", "dot", CMDcstDOTbat, false, "Dot product between blob constant and vector", args(1,3, batarg("",dbl),arg("v",blob),batarg("r",blob))),
 
  { .imp=NULL }
 
