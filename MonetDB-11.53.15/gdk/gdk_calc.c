@@ -5036,7 +5036,7 @@ BATcalcdotcst(BAT **res, const BAT *b, const ValRecord *v)
 		blob_cst = str_to_blob_vector(v->val.sval, NULL);
 		free_cst = true;
 	} else if (v->vtype == TYPE_blob) {
-		blob_cst = v->val.bval;
+		blob_cst = (blob *) v->val.pval;
 	}
 
 	bn = COLnew(0, TYPE_dbl, n, TRANSIENT);
