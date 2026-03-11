@@ -653,10 +653,11 @@ scanner_init_keywords(void)
 
 	failed += keywords_insert("LEAST", MARGFUNC);
 	failed += keywords_insert("GREATEST", MARGFUNC);
-	failed += keywords_insert("dot", DOT);
 
+	failed += keywords_insert("dot", DOT);
 	return failed;
-	}
+}
+
 #define find_keyword_bs(lc, s) find_keyword(lc->rs->buf+lc->rs->pos+s)
 
 void

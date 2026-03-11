@@ -1265,126 +1265,171 @@ CMDifthen(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
 	return MAL_SUCCEED;
 }
 
+/* similarity join */
+// static str
+// CMDbatDOT(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+// {
+//     bat bid;
+//     BAT *bn, *b1 = NULL, *b2 = NULL, *s1 = NULL, *s2 = NULL;
+//     (void) cntxt;
+//     (void) mb;
+
+//     if (stk->stk[getArg(pci, 1)].bat) {
+//         bid = *getArgReference_bat(stk, pci, 1);
+//         b1 = BATdescriptor(bid);
+//         if (b1 == NULL) goto bailout;
+//     }
+
+//     if (stk->stk[getArg(pci, 2)].bat) {
+//         bid = *getArgReference_bat(stk, pci, 2);
+//         b2 = BATdescriptor(bid);
+//         if (b2 == NULL) goto bailout;
+//     }
+
+//     if (pci->argc > 4) {
+//         bid = *getArgReference_bat(stk, pci, 4);
+//         if (!is_bat_nil(bid)) {
+//             s2 = BATdescriptor(bid);
+//             if (s2 == NULL) goto bailout;
+//         }
+//     }
+//     if (pci->argc > 3) {
+//         bid = *getArgReference_bat(stk, pci, 3);
+//         if (!is_bat_nil(bid)) {
+//             s1 = BATdescriptor(bid);
+//             if (s1 == NULL) goto bailout;
+//         }
+//     }
+
+//     bn = BATcalcdotproduct(b1, b2, s1, s2);
+
+//     if (b1) BBPunfix(b1->batCacheid);
+//     if (b2) BBPunfix(b2->batCacheid);
+//     if (s1) BBPreclaim(s1);
+//     if (s2) BBPreclaim(s2);
+
+//     if (bn == NULL)
+//         return mythrow(MAL, "batcalc.dot", GDK_EXCEPTION);
+    
+//     *getArgReference_bat(stk, pci, 0) = bn->batCacheid;
+//     BBPkeepref(bn);
+//     return MAL_SUCCEED;
+
+//   bailout:
+//     if (b1) BBPunfix(b1->batCacheid);
+//     if (b2) BBPunfix(b2->batCacheid);
+//     if (s1) BBPreclaim(s1);
+//     if (s2) BBPreclaim(s2);
+//     throw(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+// }
+
 static str
-CMDbatSIMJOIN(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+CMDbatSTR2VEC(bat *res, const bat *bid)
 {
-	bat *r1 = getArgReference_bat(stk, pci, 0);
-	bat *r2 = getArgReference_bat(stk, pci, 1);
-	bat lid = *getArgReference_bat(stk, pci, 2);
-	bat rid = *getArgReference_bat(stk, pci, 3);
-	dbl threshold = *getArgReference_dbl(stk, pci, 4);
-	BAT *bl = NULL, *br = NULL, *bn1 = NULL, *br1 = NULL;
-	str msg = MAL_SUCCEED;
+    BAT *b, *bn = NULL;
 
-	(void)cntxt;
-	(void)mb;
-	if ((bl = BATdescriptor(lid)) == NULL || (br = BATdescriptor(rid)) == NULL) {
-		msg = createException(MAL, "batcalc.similarity_join", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
-		goto bailout;
-	}
+    if ((b = BATdescriptor(*bid)) == NULL)
+        throw(MAL, "batcalc.str_to_vec", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
 
-	if (BATcalcsimilarityjoin(&bn1, &br1, bl, br, threshold) != GDK_SUCCEED) {
-		msg = createException(MAL, "batcalc.similarity_join", GDK_EXCEPTION);
-		goto bailout;
-	}
+    gdk_return ret = BATcalcstr2vec(&bn, b);
 
-	*r1 = bn1->batCacheid;
-	BBPkeepref(bn1);
-	*r2 = br1->batCacheid;
-	BBPkeepref(br1);
+    BBPunfix(b->batCacheid);
 
-bailout:
-	if (bl) BBPunfix(bl->batCacheid);
-	if (br) BBPunfix(br->batCacheid);
-	return msg;
+    if (ret != GDK_SUCCEED)
+        throw(MAL, "batcalc.str_to_vec", GDK_EXCEPTION);
+
+    if (bn) {
+        *res = bn->batCacheid;
+        BBPkeepref(bn);
+    } else {
+        *res = bat_nil;
+    }
+    return MAL_SUCCEED;
 }
 
 static str
-CMDbatDOT(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+CMDbatDOT(bat *res, const bat *bid1, const bat *bid2)
 {
-	bat *ret = getArgReference_bat(stk, pci, 0);
-	bat lid = *getArgReference_bat(stk, pci, 1);
-	bat rid = *getArgReference_bat(stk, pci, 2);
-	BAT *bl = NULL, *br = NULL, *bn = NULL;
-	str msg = MAL_SUCCEED;
+    BAT *b1, *b2, *bn = NULL;
 
-	(void)cntxt;
-	(void)mb;
-	if ((bl = BATdescriptor(lid)) == NULL || (br = BATdescriptor(rid)) == NULL) {
-		msg = createException(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
-		goto bailout;
-	}
+    if ((b1 = BATdescriptor(*bid1)) == NULL)
+        throw(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    if ((b2 = BATdescriptor(*bid2)) == NULL) {
+        BBPunfix(b1->batCacheid);
+        throw(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    }
 
-	if (BATcalcdot(&bn, bl, br) != GDK_SUCCEED) {
-		msg = createException(MAL, "batcalc.dot", GDK_EXCEPTION);
-		goto bailout;
-	}
+    if (ATOMstorage(b1->ttype) != TYPE_blob || ATOMstorage(b2->ttype) != TYPE_blob) {
+        BBPunfix(b1->batCacheid);
+        BBPunfix(b2->batCacheid);
+        throw(MAL, "batcalc.dot", "Inputs must be of type BLOB");
+    }
 
-	*ret = bn->batCacheid;
-	BBPkeepref(bn);
+    gdk_return ret = BATcalcblobsdot(&bn, b1, b2);
 
-bailout:
-	if (bl) BBPunfix(bl->batCacheid);
-	if (br) BBPunfix(br->batCacheid);
-	return msg;
+    BBPunfix(b1->batCacheid);
+    BBPunfix(b2->batCacheid);
+
+    if (ret != GDK_SUCCEED)
+        throw(MAL, "batcalc.dot", GDK_EXCEPTION);
+
+    if (bn) {
+        *res = bn->batCacheid;
+        BBPkeepref(bn);
+    } else {
+        *res = bat_nil;
+    }
+    return MAL_SUCCEED;
 }
 
 static str
-CMDbatDOTcst(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+CMDbatDOT_auto(bat *res, const bat *bid1, const bat *bid2)
 {
-	bat *ret = getArgReference_bat(stk, pci, 0);
-	bat lid = *getArgReference_bat(stk, pci, 1);
-	ValPtr v = getArgReference(stk, pci, 2);
-	BAT *bl = NULL, *bn = NULL;
-	str msg = MAL_SUCCEED;
+    BAT *b1, *b2;
+    BAT *blob1 = NULL, *blob2 = NULL;
+    BAT *bn = NULL;
+    gdk_return ret;
 
-	(void)cntxt;
-	(void)mb;
-	if ((bl = BATdescriptor(lid)) == NULL) {
-		msg = createException(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
-		goto bailout;
-	}
+	// String BAT
+    if ((b1 = BATdescriptor(*bid1)) == NULL)
+        throw(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    if ((b2 = BATdescriptor(*bid2)) == NULL) {
+        BBPunfix(b1->batCacheid);
+        throw(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    }
 
-	if (BATcalcdotcst(&bn, bl, v) != GDK_SUCCEED) {
-		msg = createException(MAL, "batcalc.dot", GDK_EXCEPTION);
-		goto bailout;
-	}
+    // String -> Blob
+    if (BATcalcstr2vec(&blob1, b1) != GDK_SUCCEED) {
+        BBPunfix(b1->batCacheid);
+        BBPunfix(b2->batCacheid);
+        throw(MAL, "batcalc.dot", "Auto-conversion of first argument failed");
+    }
+    
+    if (BATcalcstr2vec(&blob2, b2) != GDK_SUCCEED) {
+        BBPunfix(b1->batCacheid);
+        BBPunfix(b2->batCacheid);
+        BBPreclaim(blob1);
+        throw(MAL, "batcalc.dot", "Auto-conversion of second argument failed");
+    }
 
-	*ret = bn->batCacheid;
-	BBPkeepref(bn);
+    // Blob -> Dot
+    ret = BATcalcblobsdot(&bn, blob1, blob2);
 
-bailout:
-	if (bl) BBPunfix(bl->batCacheid);
-	return msg;
-}
+    BBPunfix(b1->batCacheid);
+    BBPunfix(b2->batCacheid);
+    BBPreclaim(blob1);
+    BBPreclaim(blob2);
 
-static str
-CMDcstDOTbat(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
-{
-	bat *ret = getArgReference_bat(stk, pci, 0);
-	ValPtr v = getArgReference(stk, pci, 1);
-	bat rid = *getArgReference_bat(stk, pci, 2);
-	BAT *br = NULL, *bn = NULL;
-	str msg = MAL_SUCCEED;
+    if (ret != GDK_SUCCEED)
+        throw(MAL, "batcalc.dot", GDK_EXCEPTION);
 
-	(void)cntxt;
-	(void)mb;
-	if ((br = BATdescriptor(rid)) == NULL) {
-		msg = createException(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
-		goto bailout;
-	}
-
-	if (BATcstcalcdot(&bn, v, br) != GDK_SUCCEED) {
-		msg = createException(MAL, "batcalc.dot", GDK_EXCEPTION);
-		goto bailout;
-	}
-
-	*ret = bn->batCacheid;
-	BBPkeepref(bn);
-
-bailout:
-	if (br) BBPunfix(br->batCacheid);
-	return msg;
+    if (bn) {
+        *res = bn->batCacheid;
+        BBPkeepref(bn);
+    } else {
+        *res = bat_nil;
+    }
+    return MAL_SUCCEED;
 }
 
 #include "mel.h"
@@ -2103,11 +2148,6 @@ static mel_func batcalc_init_funcs[] = {
  pattern("batcalc", "ifthenelse", CMDifthen, false, "If-then-else operation to assemble a conditional result", args(1,4, batargany("",1),batarg("b",bit),batargany("b1",1),argany("v2",1))),
  pattern("batcalc", "ifthenelse", CMDifthen, false, "If-then-else operation to assemble a conditional result", args(1,4, batargany("",1),batarg("b",bit),argany("v1",1),batargany("b2",1))),
  pattern("batcalc", "ifthenelse", CMDifthen, false, "If-then-else operation to assemble a conditional result", args(1,4, batargany("",1),batarg("b",bit),batargany("b1",1),batargany("b2",1))),
-
- pattern("batcalc", "similarity_join", CMDbatSIMJOIN, false, "Similarity join between two vectors", args(2,5, batarg("",oid),batarg("",oid),batargany("l",1),batargany("r",1),arg("threshold",dbl))),
- pattern("batcalc", "dot", CMDbatDOT, false, "Dot product between two vectors", args(1,3, batarg("",dbl),batargany("l",1),batargany("r",1))),
- pattern("batcalc", "dot", CMDbatDOTcst, false, "Dot product between vector and constant", args(1,3, batarg("",dbl),batargany("l",1),argany("v",1))),
- pattern("batcalc", "dot", CMDcstDOTbat, false, "Dot product between constant and vector", args(1,3, batarg("",dbl),argany("v",1),batargany("r",1))),
 
  { .imp=NULL }
 

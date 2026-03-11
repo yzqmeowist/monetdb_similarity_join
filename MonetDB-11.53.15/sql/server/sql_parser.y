@@ -304,7 +304,6 @@ int yydebug=1;
 	SelectStmt
 	sqlstmt
 	string_funcs
-	similarity_funcs
 	table_constraint
 	table_constraint_type
 	table_content_source
@@ -643,7 +642,6 @@ int yydebug=1;
 %token <sval> GROUPING SETS FROM FOR MATCH
 
 %token <sval> EXTRACT
-%token <sval> DOT
 
 /* sequence operations */
 %token SEQUENCE INCREMENT RESTART CONTINUE
@@ -4787,7 +4785,6 @@ value_exp:
  |  null
  |  param
  |  string_funcs
- |  similarity_funcs
  |  XML_value_function
  |  odbc_scalar_func_escape
  |  select_with_parens  %prec UMINUS { $$ = $1; }
@@ -5048,14 +5045,6 @@ string_funcs:
 			  append_int(l, FALSE); /* ignore distinct */
 			  append_list(l, $4);
 			  $$ = _symbol_create_list( SQL_NOP, l ); }
- ;
-
-similarity_funcs:
-    DOT '(' scalar_exp ',' scalar_exp ')'
-		{ dlist *l = L();
-		  append_symbol(l, $3);
-		  append_symbol(l, $5);
-		  $$ = _symbol_create_list(SQL_DOT, l); }
  ;
 
 column_exp_commalist:
