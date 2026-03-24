@@ -25,7 +25,31 @@
 #include "sql_gencode.h"
 #include "mal_builder.h"
 
-static stmt * rel_bin(backend *be, sql_rel *rel);
+static stmt * sql_unop_(backend *be, const char *fname, stmt *rs);
+
+static sql_exp *
+check_similarity_join(list *exps, sql_exp **threshold)
+{
+	if (!exps || list_empty(exps))
+		return NULL;
+	for (node *n = exps->h; n; n = n->next) {
+		sql_exp *e = n->data;
+		if (e->type == e_cmp && (e->flag == cmp_gt || e->flag == cmp_gte)) {
+			sql_exp *le = e->l;
+			if (le->type == e_func) {
+				sql_subfunc *f = le->f;
+				if (f && f->func && strcmp(f->func->base.name, "dot") == 0) {
+					*threshold = e->r;
+					return e;
+				}
+			}
+		}
+	}
+	return NULL;
+}
+
+static stmt *
+rel_bin(backend *be, sql_rel *rel);
 static stmt * subrel_bin(backend *be, sql_rel *rel, list *refs);
 
 static stmt *check_types(backend *be, sql_subtype *fromtype, stmt *s, check_type tpe);
@@ -3317,9 +3341,29 @@ rel2bin_join(backend *be, sql_rel *rel, list *refs)
 
 		split_join_exps(rel, jexps, sexps, false);
 		if (list_empty(jexps)) { /* cross product and continue after project */
-			stmt *l = bin_find_smallest_column(be, left);
-			stmt *r = bin_find_smallest_column(be, right);
-			join = stmt_join(be, l, r, 0, cmp_all, 0, 0, false);
+			sql_exp *sim_threshold = NULL;
+			sql_exp *sim_cmp = check_similarity_join(sexps, &sim_threshold);
+
+			if (sim_cmp) {
+				sql_exp *sim_dot_func = sim_cmp->l;
+				list *args = sim_dot_func->l;
+				sql_exp *vecl = args->h->data;
+				sql_exp *vecr = args->h->next->data;
+
+				stmt *sl = exp_bin(be, vecl, left, right, NULL, NULL, NULL, NULL, 0, 0, 0);
+				stmt *sr = exp_bin(be, vecr, left, right, NULL, NULL, NULL, NULL, 0, 0, 0);
+				stmt *st = exp_bin(be, sim_threshold, left, right, NULL, NULL, NULL, NULL, 0, 0, 0);
+
+				if (sl && sr && st) {
+					join = stmt_similarity_join(be, sl, sr, st);
+					list_remove_data(sexps, NULL, sim_cmp);
+				}
+			}
+			if (!join) {
+				stmt *l = bin_find_smallest_column(be, left);
+				stmt *r = bin_find_smallest_column(be, right);
+				join = stmt_join(be, l, r, 0, cmp_all, 0, 0, false);
+			}
 		}
 
 		if (join) {

@@ -197,6 +197,8 @@ sleep 2
 echo "Initializing data..."
 
 "$CMD_MCLIENT" -d "$DB_NAME" <<EOF
+
+DROP TABLE IF EXISTS model;
 DROP TABLE IF EXISTS uw;
 DROP TABLE IF EXISTS mw;
 
@@ -206,34 +208,16 @@ CREATE TABLE mw (M VARCHAR(10), G VARCHAR(2000));
 COPY INTO uw FROM '$ROOT_DIR/ml-latest-small/uw.csv' USING DELIMITERS ',', '\n', '"';
 COPY INTO mw FROM '$ROOT_DIR/ml-latest-small/mw.csv' USING DELIMITERS ',', '\n', '"';
 
+CREATE TABLE mo(R CLOB);
+INSERT INTO mo SELECT pcatrain(F, CAST(32 AS INTEGER)) FROM uw;
 
-CREATE TABLE model(R CLOB);
-DELETE FROM model;
-INSERT INTO model SELECT pcatrain(F, CAST(32 AS INTEGER)) FROM uw;
-
-DROP TABLE IF EXISTS uw_pca;
-CREATE TABLE uw_pca AS SELECT U, pcaapply(F, (SELECT R FROM model LIMIT 1)) AS F_32 FROM uw;
-
-DROP TABLE IF EXISTS mw_pca;
-CREATE TABLE mw_pca AS SELECT M, pcaapply(G, (SELECT R FROM model LIMIT 1)) AS G_32 FROM mw;
-
-
---Baseline
-SELECT '--- similarity join ---' AS step;
+SET optimizer = 'default_pipe';
 SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 10;
 
--- Task 2: Filter & Refine
-SELECT '--- PCA similarity join---' AS step;
-SELECT mw.M
-FROM (
-    SELECT mw_pca.M
-    FROM mw_pca 
-    ORDER BY dot((SELECT F_32 FROM uw_pca WHERE U='u2'), mw_pca.G_32) DESC
-    LIMIT 2000
-) AS c
-JOIN mw ON c.M = mw.M
-ORDER BY dot((SELECT F FROM uw WHERE U='u2'), mw.G) DESC
-LIMIT 10;
+# SET optimizer = 'pca_pipe';
+# SELECT '--- Fast Result (PCA Accelerated) ---' AS mode;
+
+# SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 10;
 
 
 EOF
@@ -252,3 +236,65 @@ echo "    mclient -d $DB_NAME"
 # CREATE TABLE movie_model(R CLOB);
 # DELETE FROM movie_model;
 # INSERT INTO movie_model SELECT pcatrain(G, CAST(16 AS INTEGER)) FROM mw;
+
+# # INSERT INTO uw VALUES ('u2', '[1.0, -0.5]'), ('u3', '[2.0, -1.0]'), 
+# #                       ('u4', '[4.2, 1.3]'),  ('u5', '[1.0, -0.7]');
+
+# # INSERT INTO mw VALUES ('m1', '[1.9, -1.5]'), ('m2', '[1.1, -2.0]'), 
+# #                       ('m4', '[2.1, -0.6]');
+
+# SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 5;
+# SELECT U,M FROM uw, mw WHERE dot(F,G) > 3;
+
+# # self-similarity join
+# SELECT a.U, b.U FROM uw AS a, uw AS b WHERE a.U < b.U AND dot(a.F, b.F) > 0.95;
+
+# # similarity aggregation
+# SELECT U, AVG(dot(F,G)) FROM uw, mw GROUP BY U;
+
+# # Mixed
+# SELECT U, M FROM uw, mw WHERE M='m1' AND U LIKE 'u%' AND dot(F,G) > 1.5;
+
+# # dot(scalar,scalar)
+# SELECT DOT('[1,2]','[3,4]') AS s;
+# SELECT DOT('[1,2]','[3]') AS s;
+
+
+
+# DROP TABLE IF EXISTS uw;
+# DROP TABLE IF EXISTS mw;
+
+# CREATE TABLE uw (U VARCHAR(10), F VARCHAR(2000));
+# CREATE TABLE mw (M VARCHAR(10), G VARCHAR(2000));
+
+# COPY INTO uw FROM '$ROOT_DIR/ml-latest-small/uw.csv' USING DELIMITERS ',', '\n', '"';
+# COPY INTO mw FROM '$ROOT_DIR/ml-latest-small/mw.csv' USING DELIMITERS ',', '\n', '"';
+
+
+# CREATE TABLE model(R CLOB);
+# DELETE FROM model;
+# INSERT INTO model SELECT pcatrain(F, CAST(32 AS INTEGER)) FROM uw;
+
+# DROP TABLE IF EXISTS uw_pca;
+# CREATE TABLE uw_pca AS SELECT U, pcaapply(F, (SELECT R FROM model LIMIT 1)) AS F_32 FROM uw;
+
+# DROP TABLE IF EXISTS mw_pca;
+# CREATE TABLE mw_pca AS SELECT M, pcaapply(G, (SELECT R FROM model LIMIT 1)) AS G_32 FROM mw;
+
+
+# --Baseline
+# SELECT '--- similarity join ---' AS step;
+# SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 10;
+
+# -- Task 2: Filter & Refine
+# SELECT '--- PCA similarity join---' AS step;
+# SELECT mw.M
+# FROM (
+#     SELECT mw_pca.M
+#     FROM mw_pca 
+#     ORDER BY dot((SELECT F_32 FROM uw_pca WHERE U='u2'), mw_pca.G_32) DESC
+#     LIMIT 2000
+# ) AS c
+# JOIN mw ON c.M = mw.M
+# ORDER BY dot((SELECT F FROM uw WHERE U='u2'), mw.G) DESC
+# LIMIT 10;

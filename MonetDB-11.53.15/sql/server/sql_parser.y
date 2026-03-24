@@ -304,6 +304,7 @@ int yydebug=1;
 	SelectStmt
 	sqlstmt
 	string_funcs
+	similarity_funcs
 	table_constraint
 	table_constraint_type
 	table_content_source
@@ -642,6 +643,8 @@ int yydebug=1;
 %token <sval> GROUPING SETS FROM FOR MATCH
 
 %token <sval> EXTRACT
+%token <sval> DOT
+%token <sval> PCATRAIN
 
 /* sequence operations */
 %token SEQUENCE INCREMENT RESTART CONTINUE
@@ -782,12 +785,6 @@ SQLCODE SQLERROR UNDER WHENEVER
    TO (MONTH etc) -> TO_LA MONTH ..
  */
 %token <sval> WITH_LA INTO_LA OUTER_UNION TO_LA
-
-/* similarity join */
-%token <sval> DOT
-/* compression similarity join, pca*/
-%token <sval> PCATRAIN
-%token <sval> PCAAPPLY
 
 /* operators (highest precedence at the end) */
 %left OUTER_UNION UNION EXCEPT
@@ -4616,26 +4613,12 @@ scalar_exp:
 		  append_symbol(l, $4);
 		  append_symbol(l, $6);
 		  $$ = _symbol_create_list(SQL_BETWEEN, l ); }
- /* similarity join */
- |  DOT '(' scalar_exp ',' scalar_exp ')' 
- 		{ dlist *l = L();
-		  append_symbol(l, $3);
-		  append_symbol(l, $5);
-		  
-		  $$ = symbol_create_list(m->sa, SQL_DOT, l); }
-	/* compression similarity join, pca */
 	| PCATRAIN '(' scalar_exp ',' scalar_exp ')'
     {	dlist *l = L();
 			append_symbol(l, $3);        /* column name */
 			append_symbol(l, $5);            /* target dim */
 			
 			$$ = symbol_create_list(m->sa, SQL_PCATRAIN, l);}
-	| PCAAPPLY '(' scalar_exp ',' scalar_exp ')'
-    {	dlist *l = L();
-			append_symbol(l, $3);        /* column name */
-			append_symbol(l, $5);            /* model result(the clob) */
-			
-			$$ = symbol_create_list(m->sa, SQL_PCAAPPLY, l);}
 	|  DEFAULT { $$ = _symbol_create(SQL_DEFAULT, NULL ); }
 	;
 
@@ -4801,6 +4784,7 @@ value_exp:
  |  null
  |  param
  |  string_funcs
+ |  similarity_funcs
  |  XML_value_function
  |  odbc_scalar_func_escape
  |  select_with_parens  %prec UMINUS { $$ = $1; }
@@ -5061,6 +5045,14 @@ string_funcs:
 			  append_int(l, FALSE); /* ignore distinct */
 			  append_list(l, $4);
 			  $$ = _symbol_create_list( SQL_NOP, l ); }
+ ;
+
+similarity_funcs:
+    DOT '(' scalar_exp ',' scalar_exp ')'
+		{ dlist *l = L();
+		  append_symbol(l, $3);
+		  append_symbol(l, $5);
+		  $$ = _symbol_create_list(SQL_DOT, l); }
  ;
 
 column_exp_commalist:

@@ -5267,7 +5267,6 @@ rel_value_exp2(sql_query *query, sql_rel **rel, symbol *se, int f, exp_kind ek)
 	case SQL_XMLPI:
 	case SQL_XMLTEXT:
 		return rel_xml(query, rel, se, f, ek);
-	// similarity join
 	case SQL_DOT: {
 		dlist *l = se->data.lval;
 		sql_exp *l_exp, *r_exp;
@@ -5309,29 +5308,6 @@ rel_value_exp2(sql_query *query, sql_rel **rel, symbol *se, int f, exp_kind ek)
 
     sql_exp *res_exp = exp_aggr(sql->sa, args, fnc, 0, 0, cardinality, 0); 
 
-    return res_exp;
-  }
-	case SQL_PCAAPPLY: {
-    dlist *l = se->data.lval;
-    sql_exp *l_exp, *r_exp;
-    sql_subfunc *fnc;
-
-    if (!(l_exp = rel_value_exp(query, rel, l->h->data.sym, f, ek))) {
-        return NULL;
-    }
-    
-    if (!(r_exp = rel_value_exp(query, rel, l->h->next->data.sym, f, ek))) {
-        return NULL;
-    }
-
-    fnc = sql_bind_func(sql, "sys", "pcaapply", exp_subtype(l_exp), exp_subtype(r_exp), F_FUNC, false, false);
-    
-    if (!fnc) {
-        return sql_error(sql, 02, SQLSTATE(42000) "PCA Error: Scalar function 'pcaapply' not found.");
-    }
-
-    sql_exp *res_exp = exp_binop(sql->sa, l_exp, r_exp, fnc);
-    
     return res_exp;
   }
 	default:

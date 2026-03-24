@@ -1266,258 +1266,202 @@ CMDifthen(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
 }
 
 /* similarity join */
-// static str
-// CMDbatDOT(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
-// {
-//     bat bid;
-//     BAT *bn, *b1 = NULL, *b2 = NULL, *s1 = NULL, *s2 = NULL;
-//     (void) cntxt;
-//     (void) mb;
-
-//     if (stk->stk[getArg(pci, 1)].bat) {
-//         bid = *getArgReference_bat(stk, pci, 1);
-//         b1 = BATdescriptor(bid);
-//         if (b1 == NULL) goto bailout;
-//     }
-
-//     if (stk->stk[getArg(pci, 2)].bat) {
-//         bid = *getArgReference_bat(stk, pci, 2);
-//         b2 = BATdescriptor(bid);
-//         if (b2 == NULL) goto bailout;
-//     }
-
-//     if (pci->argc > 4) {
-//         bid = *getArgReference_bat(stk, pci, 4);
-//         if (!is_bat_nil(bid)) {
-//             s2 = BATdescriptor(bid);
-//             if (s2 == NULL) goto bailout;
-//         }
-//     }
-//     if (pci->argc > 3) {
-//         bid = *getArgReference_bat(stk, pci, 3);
-//         if (!is_bat_nil(bid)) {
-//             s1 = BATdescriptor(bid);
-//             if (s1 == NULL) goto bailout;
-//         }
-//     }
-
-//     bn = BATcalcdotproduct(b1, b2, s1, s2);
-
-//     if (b1) BBPunfix(b1->batCacheid);
-//     if (b2) BBPunfix(b2->batCacheid);
-//     if (s1) BBPreclaim(s1);
-//     if (s2) BBPreclaim(s2);
-
-//     if (bn == NULL)
-//         return mythrow(MAL, "batcalc.dot", GDK_EXCEPTION);
-    
-//     *getArgReference_bat(stk, pci, 0) = bn->batCacheid;
-//     BBPkeepref(bn);
-//     return MAL_SUCCEED;
-
-//   bailout:
-//     if (b1) BBPunfix(b1->batCacheid);
-//     if (b2) BBPunfix(b2->batCacheid);
-//     if (s1) BBPreclaim(s1);
-//     if (s2) BBPreclaim(s2);
-//     throw(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
-// }
-
 static str
-CMDbatSTR2VEC(bat *res, const bat *bid)
+CMDbatSIMJOIN(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
 {
-    BAT *b, *bn = NULL;
+	bat *r1 = getArgReference_bat(stk, pci, 0);
+	bat *r2 = getArgReference_bat(stk, pci, 1);
+	bat lid = *getArgReference_bat(stk, pci, 2);
+	bat rid = *getArgReference_bat(stk, pci, 3);
+	dbl threshold = *getArgReference_dbl(stk, pci, 4);
+	BAT *bl = NULL, *br = NULL, *bn1 = NULL, *br1 = NULL;
+	str msg = MAL_SUCCEED;
 
-    if ((b = BATdescriptor(*bid)) == NULL)
-        throw(MAL, "batcalc.str_to_vec", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+	(void)cntxt;
+	(void)mb;
+	if ((bl = BATdescriptor(lid)) == NULL || (br = BATdescriptor(rid)) == NULL) {
+		msg = createException(MAL, "batcalc.similarity_join", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+		goto bailout;
+	}
 
-    gdk_return ret = BATcalcstr2vec(&bn, b);
+	if (BATcalcsimilarityjoin(&bn1, &br1, bl, br, threshold) != GDK_SUCCEED) {
+		msg = createException(MAL, "batcalc.similarity_join", GDK_EXCEPTION);
+		goto bailout;
+	}
 
-    BBPunfix(b->batCacheid);
+	*r1 = bn1->batCacheid;
+	BBPkeepref(bn1);
+	*r2 = br1->batCacheid;
+	BBPkeepref(br1);
 
-    if (ret != GDK_SUCCEED)
-        throw(MAL, "batcalc.str_to_vec", GDK_EXCEPTION);
-
-    if (bn) {
-        *res = bn->batCacheid;
-        BBPkeepref(bn);
-    } else {
-        *res = bat_nil;
-    }
-    return MAL_SUCCEED;
+bailout:
+	if (bl) BBPunfix(bl->batCacheid);
+	if (br) BBPunfix(br->batCacheid);
+	return msg;
 }
 
 static str
-CMDbatDOT(bat *res, const bat *bid1, const bat *bid2)
+CMDbatDOT(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
 {
-    BAT *b1, *b2, *bn = NULL;
+	bat *ret = getArgReference_bat(stk, pci, 0);
+	bat lid = *getArgReference_bat(stk, pci, 1);
+	bat rid = *getArgReference_bat(stk, pci, 2);
+	BAT *bl = NULL, *br = NULL, *bn = NULL;
+	str msg = MAL_SUCCEED;
 
-    if ((b1 = BATdescriptor(*bid1)) == NULL)
-        throw(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
-    if ((b2 = BATdescriptor(*bid2)) == NULL) {
-        BBPunfix(b1->batCacheid);
-        throw(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
-    }
+	(void)cntxt;
+	(void)mb;
+	if ((bl = BATdescriptor(lid)) == NULL || (br = BATdescriptor(rid)) == NULL) {
+		msg = createException(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+		goto bailout;
+	}
 
-    if (ATOMstorage(b1->ttype) != TYPE_blob || ATOMstorage(b2->ttype) != TYPE_blob) {
-        BBPunfix(b1->batCacheid);
-        BBPunfix(b2->batCacheid);
-        throw(MAL, "batcalc.dot", "Inputs must be of type BLOB");
-    }
+	if (BATcalcdot(&bn, bl, br) != GDK_SUCCEED) {
+		msg = createException(MAL, "batcalc.dot", GDK_EXCEPTION);
+		goto bailout;
+	}
 
-    gdk_return ret = BATcalcblobsdot(&bn, b1, b2);
+	*ret = bn->batCacheid;
+	BBPkeepref(bn);
 
-    BBPunfix(b1->batCacheid);
-    BBPunfix(b2->batCacheid);
-
-    if (ret != GDK_SUCCEED)
-        throw(MAL, "batcalc.dot", GDK_EXCEPTION);
-
-    if (bn) {
-        *res = bn->batCacheid;
-        BBPkeepref(bn);
-    } else {
-        *res = bat_nil;
-    }
-    return MAL_SUCCEED;
+bailout:
+	if (bl) BBPunfix(bl->batCacheid);
+	if (br) BBPunfix(br->batCacheid);
+	return msg;
 }
 
 static str
-CMDbatDOT_auto(bat *res, const bat *bid1, const bat *bid2)
+CMDbatDOTcst(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
 {
-    BAT *b1, *b2;
-    BAT *blob1 = NULL, *blob2 = NULL;
-    BAT *bn = NULL;
-    gdk_return ret;
+	bat *ret = getArgReference_bat(stk, pci, 0);
+	bat lid = *getArgReference_bat(stk, pci, 1);
+	ValPtr v = getArgReference(stk, pci, 2);
+	BAT *bl = NULL, *bn = NULL;
+	str msg = MAL_SUCCEED;
 
-	// String BAT
-    if ((b1 = BATdescriptor(*bid1)) == NULL)
-        throw(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
-    if ((b2 = BATdescriptor(*bid2)) == NULL) {
-        BBPunfix(b1->batCacheid);
-        throw(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
-    }
+	(void)cntxt;
+	(void)mb;
+	if ((bl = BATdescriptor(lid)) == NULL) {
+		msg = createException(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+		goto bailout;
+	}
 
-    // String -> Blob
-    if (BATcalcstr2vec(&blob1, b1) != GDK_SUCCEED) {
-        BBPunfix(b1->batCacheid);
-        BBPunfix(b2->batCacheid);
-        throw(MAL, "batcalc.dot", "Auto-conversion of first argument failed");
-    }
-    
-    if (BATcalcstr2vec(&blob2, b2) != GDK_SUCCEED) {
-        BBPunfix(b1->batCacheid);
-        BBPunfix(b2->batCacheid);
-        BBPreclaim(blob1);
-        throw(MAL, "batcalc.dot", "Auto-conversion of second argument failed");
-    }
+	if (BATcalcdotcst(&bn, bl, v) != GDK_SUCCEED) {
+		msg = createException(MAL, "batcalc.dot", GDK_EXCEPTION);
+		goto bailout;
+	}
 
-    // Blob -> Dot
-    ret = BATcalcblobsdot(&bn, blob1, blob2);
+	*ret = bn->batCacheid;
+	BBPkeepref(bn);
 
-    BBPunfix(b1->batCacheid);
-    BBPunfix(b2->batCacheid);
-    BBPreclaim(blob1);
-    BBPreclaim(blob2);
-
-    if (ret != GDK_SUCCEED)
-        throw(MAL, "batcalc.dot", GDK_EXCEPTION);
-
-    if (bn) {
-        *res = bn->batCacheid;
-        BBPkeepref(bn);
-    } else {
-        *res = bat_nil;
-    }
-    return MAL_SUCCEED;
+bailout:
+	if (bl) BBPunfix(bl->batCacheid);
+	return msg;
 }
 
-// PCA训练包装函数
 static str
-CMDbatPCATRAIN(str *res, const bat *vectors, const bat *target_dim_bat)
-{   
-    fprintf(stderr, "CMDbatPCATRAIN STARTED\n");
-    BAT *vectors_bat = NULL;
-    BAT *dim_bat = NULL; // 用来接维度的 BAT
+CMDcstDOTbat(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+	bat *ret = getArgReference_bat(stk, pci, 0);
+	ValPtr v = getArgReference(stk, pci, 1);
+	bat rid = *getArgReference_bat(stk, pci, 2);
+	BAT *br = NULL, *bn = NULL;
+	str msg = MAL_SUCCEED;
+
+	(void)cntxt;
+	(void)mb;
+	if ((br = BATdescriptor(rid)) == NULL) {
+		msg = createException(MAL, "batcalc.dot", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+		goto bailout;
+	}
+
+	if (BATcstcalcdot(&bn, v, br) != GDK_SUCCEED) {
+		msg = createException(MAL, "batcalc.dot", GDK_EXCEPTION);
+		goto bailout;
+	}
+
+	*ret = bn->batCacheid;
+	BBPkeepref(bn);
+
+bailout:
+	if (br) BBPunfix(br->batCacheid);
+	return msg;
+}
+
+static str
+CMDcstDOTcst(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+	(void) cntxt;
+	(void) mb;
+
+	if (VALcalcdot(&stk->stk[getArg(pci, 0)],
+		       &stk->stk[getArg(pci, 1)],
+		       &stk->stk[getArg(pci, 2)]) != GDK_SUCCEED)
+		return mythrow(MAL, "batcalc.dot", OPERATION_FAILED);
+	return MAL_SUCCEED;
+}
+
+// Global pointer for the active PCA model
+char *g_pca_active_model = NULL;
+
+static str
+CMDbatPCATRAIN(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+    str *res = getArgReference_str(stk, pci, 0);
+    bat vid = *getArgReference_bat(stk, pci, 1);
+    bat did = *getArgReference_bat(stk, pci, 2);
+    BAT *vectors_bat = NULL, *dim_bat = NULL;
     int target_dim;
 
-    if ((vectors_bat = BATdescriptor(*vectors)) == NULL) {
-        throw(MAL, "batcalcpcatrain", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    (void)cntxt; (void)mb;
+
+    if ((vectors_bat = BATdescriptor(vid)) == NULL) {
+        throw(MAL, "batcalc.pcatrain", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
     }
     
-    // 💥 提取目标维度：打开维度的 BAT，读取第一行的值
-    if ((dim_bat = BATdescriptor(*target_dim_bat)) == NULL) {
+    if ((dim_bat = BATdescriptor(did)) == NULL) {
         BBPunfix(vectors_bat->batCacheid);
-        throw(MAL, "batcalcpcatrain", "Cannot access dimension BAT");
-    }
-    // Tloc(dim_bat, 0) 是获取 BAT 第一行数据的指针
-    target_dim = *(int*)Tloc(dim_bat, 0); 
-    BBPunfix(dim_bat->batCacheid); // 用完赶紧关掉
-    
-    // ... 剩下的代码完全不变，继续调用你的算法 ...
-    BAT *vec_bat = vectors_bat;
-    if (ATOMstorage(vectors_bat->ttype) == TYPE_str) {
-        if (BATcalcstr2vec(&vec_bat, vectors_bat) != GDK_SUCCEED) {
-            BBPunfix(vectors_bat->batCacheid);
-            throw(MAL, "batcalcpcatrain", "Failed to convert string to vector");
-        }
+        throw(MAL, "batcalc.pcatrain", "Cannot access dimension BAT");
     }
 
-    char *model_str = BATcalcpcatrain(vec_bat, target_dim);
+    target_dim = *(int*)Tloc(dim_bat, 0); 
+    BBPunfix(dim_bat->batCacheid); 
     
+    char *model_str = BATcalcpcatrain(vectors_bat, target_dim);
+    
+    BBPunfix(vectors_bat->batCacheid);
+
     if (!model_str) {
-        if (vec_bat != vectors_bat) BBPreclaim(vec_bat);
-        BBPunfix(vectors_bat->batCacheid);
-        throw(MAL, "batcalcpcatrain", "PCA Training failed");
+        throw(MAL, "batcalc.pcatrain", "PCA Training failed in GDK core");
     }
     
+    // Cache the trained model globally in the engine memory
+    if (g_pca_active_model != NULL) {
+        GDKfree(g_pca_active_model); 
+    }
+    g_pca_active_model = GDKstrdup(model_str); 
+
     *res = model_str; 
-    
-    if (vec_bat != vectors_bat) BBPreclaim(vec_bat);
-    BBPunfix(vectors_bat->batCacheid);
-    
-    fprintf(stderr, "[PCATRAIN] Done, returning CLOB string.\n");
     return MAL_SUCCEED;
 }
 
+// PCA Apply: (bat, bat) -> bat
 static str 
-CMDbatPCAAPPLY(bat *res, const bat *vectors, const bat *model_bat_id)
+CMDbatPCAAPPLY(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
 {
-    BAT *vectors_bat = NULL, *vec_bat = NULL, *mod_bat = NULL, *out_bat = NULL;
+    bat *res = getArgReference_bat(stk, pci, 0);
+    bat vid = *getArgReference_bat(stk, pci, 1);
+    bat mid = *getArgReference_bat(stk, pci, 2);
+    BAT *vectors_bat = NULL, *mod_bat = NULL, *out_bat = NULL;
     gdk_return err;
 
-    fprintf(stderr, "\n========== PCA APPLY MAL LAYER STARTED ==========\n");
-    fflush(stderr);
+    (void)cntxt; (void)mb;
 
-    // 1. 获取输入向量 BAT
-    if ((vectors_bat = BATdescriptor(*vectors)) == NULL) {
-        fprintf(stderr, "[PCA APPLY] 💥 FATAL: Failed to get input vectors BAT.\n");
-        fflush(stderr);
+    if ((vectors_bat = BATdescriptor(vid)) == NULL) {
         throw(MAL, "batcalc.pcaapply", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
     }
-    fprintf(stderr, "[PCA APPLY] 1. Input vectors BAT acquired (Count: %zu).\n", (size_t)BATcount(vectors_bat));
-    fflush(stderr);
     
-    // 💥 关键补充：如果传入的是字符串列，先把它解析成二进制 float 向量的 BAT
-    vec_bat = vectors_bat;
-    if (ATOMstorage(vectors_bat->ttype) == TYPE_str) {
-        fprintf(stderr, "[PCA APPLY] 1.5 Input is STRING type. Triggering string-to-vector conversion...\n");
-        fflush(stderr);
-        if (BATcalcstr2vec(&vec_bat, vectors_bat) != GDK_SUCCEED) {
-            fprintf(stderr, "[PCA APPLY] 💥 FATAL: String to vector conversion failed!\n");
-            fflush(stderr);
-            BBPunfix(vectors_bat->batCacheid);
-            throw(MAL, "batcalc.pcaapply", "Failed to convert string to vector");
-        }
-        fprintf(stderr, "[PCA APPLY] 1.5 Conversion successful. Now handling binary float vectors.\n");
-        fflush(stderr);
-    }
-
-    // 2. 获取模型 BAT，并读取第一行的 CLOB 字符串
-    if ((mod_bat = BATdescriptor(*model_bat_id)) == NULL) {
-        fprintf(stderr, "[PCA APPLY] 💥 FATAL: Failed to get model BAT.\n");
-        fflush(stderr);
-        if (vec_bat != vectors_bat) BBPreclaim(vec_bat);
+    if ((mod_bat = BATdescriptor(mid)) == NULL) {
         BBPunfix(vectors_bat->batCacheid);
         throw(MAL, "batcalc.pcaapply", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
     }
@@ -1525,41 +1469,92 @@ CMDbatPCAAPPLY(bat *res, const bat *vectors, const bat *model_bat_id)
     BATiter mod_bi = bat_iterator(mod_bat);
     const char *model_str = (const char *)BUNtvar(mod_bi, 0);
     
-    // 打印模型字符串的前 30 个字符，用来确认读到的是不是真的模型数据
-    fprintf(stderr, "[PCA APPLY] 2. Model string extracted (Preview: '%.30s...').\n", model_str);
-    fflush(stderr);
-
-    // 3. 🛡️ 调用 GDK 层的核心算法！
-    fprintf(stderr, "[PCA APPLY] 3. Calling GDK core algorithm BATcalcpcaapply...\n");
-    fflush(stderr);
-    
-    err = BATcalcpcaapply(&out_bat, vec_bat, model_str);
+    err = BATcalcpcaapply(&out_bat, vectors_bat, model_str);
 
     bat_iterator_end(&mod_bi);
     BBPunfix(mod_bat->batCacheid);
-
-    // 4. 检查 GDK 层是否报错
-    if (err != GDK_SUCCEED || out_bat == NULL) {
-        fprintf(stderr, "[PCA APPLY] 💥 FATAL: GDK core algorithm returned GDK_FAIL or NULL BAT.\n");
-        fflush(stderr);
-        if (vec_bat != vectors_bat) BBPreclaim(vec_bat);
-        BBPunfix(vectors_bat->batCacheid);
-        throw(MAL, "batcalc.pca_apply", "GDK core algorithm failed during PCA Apply.");
-    }
-
-    fprintf(stderr, "[PCA APPLY] 4. GDK algorithm finished successfully! Output BAT generated.\n");
-    fflush(stderr);
-
-    // 清理临时输入 BAT
-    if (vec_bat != vectors_bat) BBPreclaim(vec_bat);
     BBPunfix(vectors_bat->batCacheid);
 
-    // 5. 成功，返回新的 BAT ID
+    if (err != GDK_SUCCEED || out_bat == NULL) {
+        throw(MAL, "batcalc.pcaapply", "GDK core algorithm failed during PCA Apply.");
+    }
+
     *res = out_bat->batCacheid;
     BBPkeepref(out_bat);
+
+    return MAL_SUCCEED;
+}
+
+// PCA Apply: (str, str) -> str (Scalar version for Multiplexer)
+static str 
+CMDcstPCAAPPLYcst(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+    str *res = getArgReference_str(stk, pci, 0); 
+    str val = *getArgReference_str(stk, pci, 1); 
+    str model = *getArgReference_str(stk, pci, 2); 
     
-    fprintf(stderr, "========== PCA APPLY MAL LAYER COMPLETED ==========\n\n");
-    fflush(stderr);
+    BAT *b_in = NULL, *out_bat = NULL;
+    gdk_return err;
+
+    (void)cntxt; (void)mb;
+
+    //Create a 1-row temporary BAT for the scalar input
+    b_in = COLnew(0, TYPE_str, 1, TRANSIENT);
+    if (!b_in) {
+        throw(MAL, "batcalc.pcaapply", SQLSTATE(HY013) MAL_MALLOC_FAIL);
+    }
+    
+    if (BUNappend(b_in, val, false) != GDK_SUCCEED) {
+        BBPunfix(b_in->batCacheid);
+        throw(MAL, "batcalc.pcaapply", "Failed to append string to temp BAT");
+    }
+
+    err = BATcalcpcaapply(&out_bat, b_in, model);
+    
+    BBPunfix(b_in->batCacheid); 
+
+    if (err != GDK_SUCCEED || out_bat == NULL) {
+        throw(MAL, "batcalc.pcaapply", "GDK core algorithm failed during Scalar PCA Apply.");
+    }
+
+    BATiter bi = bat_iterator(out_bat);
+    const char *result_str = (const char *)BUNtvar(bi, 0);
+    
+    *res = GDKstrdup(result_str); 
+
+    bat_iterator_end(&bi);
+    BBPunfix(out_bat->batCacheid); 
+
+    return MAL_SUCCEED;
+}
+
+// PCA Apply: (bat, str) -> bat (Vector input, scalar model)
+static str 
+CMDbatPCAAPPLYcst(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+    bat *res = getArgReference_bat(stk, pci, 0);
+    bat vid = *getArgReference_bat(stk, pci, 1);
+    str model_str = *getArgReference_str(stk, pci, 2); 
+    
+    BAT *vectors_bat = NULL, *out_bat = NULL;
+    gdk_return err;
+
+    (void)cntxt; (void)mb;
+
+    if ((vectors_bat = BATdescriptor(vid)) == NULL) {
+        throw(MAL, "batcalc.pcaapply", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    }
+    
+    err = BATcalcpcaapply(&out_bat, vectors_bat, model_str);
+
+    BBPunfix(vectors_bat->batCacheid);
+
+    if (err != GDK_SUCCEED || out_bat == NULL) {
+        throw(MAL, "batcalc.pcaapply", "GDK core algorithm failed.");
+    }
+
+    *res = out_bat->batCacheid;
+    BBPkeepref(out_bat);
 
     return MAL_SUCCEED;
 }
@@ -2200,29 +2195,6 @@ batcalc_init(void)
 		}
 	}
 	
-	/* similarity join*/
-	// mel_func_arg dot_ret = { .type = TYPE_dbl, .isbat = 1 }; 
-	// mel_func_arg dot_arg = { .type = TYPE_str, .isbat = 1 }; 
-	// err += melFunction(false, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, "Compute dot product of two string vectors", 1, 3, dot_ret, dot_arg, dot_arg);
-	// err += melFunction(false, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, "Compute dot product with candidate lists", 1, 5, dot_ret, dot_arg, dot_arg, cand, cand);
-	mel_func_arg arg_dbl_bat  = { .type = TYPE_dbl,  .isbat = 1 };
-	mel_func_arg arg_blob_bat = { .type = TYPE_blob, .isbat = 1 };
-	mel_func_arg arg_str_bat  = { .type = TYPE_str,  .isbat = 1 };
-	err += melFunction(true, "batcalc", "str_to_vec", (MALfcn)&CMDbatSTR2VEC, "CMDbatSTR2VEC", false, "Convert string vector to binary blob", 1, 2, arg_blob_bat, arg_str_bat);
-	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT, "CMDbatDOT", false, "Compute dot product of two blob vectors", 1, 3, arg_dbl_bat, arg_blob_bat, arg_blob_bat);
-	err += melFunction(true, "batcalc", "dot", (MALfcn)&CMDbatDOT_auto, "CMDbatDOT_auto", false, "Compute dot product of two string vectors (auto-convert)", 1, 3, arg_dbl_bat, arg_str_bat, arg_str_bat);
-	
-	/* compression similarity join, pca */
-  mel_func_arg pca_ret_str = { .type = TYPE_str, .isbat = 0 }; 
-  mel_func_arg pca_arg_str = { .type = TYPE_str, .isbat = 1 }; 
-  mel_func_arg pca_arg_int = { .type = TYPE_int, .isbat = 1 }; 
-  err += melFunction(true, "batcalc", "pcatrain", (MALfcn)&CMDbatPCATRAIN, "CMDbatPCATRAIN", false, "Train data and get a PCA model", 1, 3, pca_ret_str, pca_arg_str, pca_arg_int);
-
-	mel_func_arg apply_ret_str = { .type = TYPE_str, .isbat = 1 }; 
-  mel_func_arg apply_arg_str1 = { .type = TYPE_str, .isbat = 1 }; 
-  mel_func_arg apply_arg_str2 = { .type = TYPE_str, .isbat = 1 }; 
-  err += melFunction(true, "batcalc", "pcaapply", (MALfcn)&CMDbatPCAAPPLY, "CMDbatPCAAPPLY", false, "Apply PCA model to data", 1, 3, apply_ret_str, apply_arg_str1, apply_arg_str2);
-
 	return MAL_SUCCEED;
 }
 
@@ -2286,9 +2258,24 @@ static mel_func batcalc_init_funcs[] = {
  pattern("batcalc", "ifthenelse", CMDifthen, false, "If-then-else operation to assemble a conditional result", args(1,4, batargany("",1),batarg("b",bit),argany("v1",1),batargany("b2",1))),
  pattern("batcalc", "ifthenelse", CMDifthen, false, "If-then-else operation to assemble a conditional result", args(1,4, batargany("",1),batarg("b",bit),batargany("b1",1),batargany("b2",1))),
 
+ pattern("batcalc", "similarity_join", CMDbatSIMJOIN, false, "Similarity join between two vectors", args(2,5, batarg("",oid),batarg("",oid),batargany("l",1),batargany("r",1),arg("threshold",dbl))),
+ pattern("batcalc", "dot", CMDbatDOT, false, "Dot product between two vectors", args(1,3, batarg("",dbl),batargany("l",1),batargany("r",1))),
+ pattern("batcalc", "dot", CMDbatDOTcst, false, "Dot product between string vector and constant", args(1,3, batarg("",dbl),batarg("l",str),arg("v",str))),
+ pattern("batcalc", "dot", CMDbatDOTcst, false, "Dot product between blob vector and constant", args(1,3, batarg("",dbl),batarg("l",blob),arg("v",blob))),
+ pattern("batcalc", "dot", CMDcstDOTbat, false, "Dot product between string constant and vector", args(1,3, batarg("",dbl),arg("v",str),batarg("r",str))),
+ pattern("batcalc", "dot", CMDcstDOTbat, false, "Dot product between blob constant and vector", args(1,3, batarg("",dbl),arg("v",blob),batarg("r",blob))),
+ pattern("batcalc", "dot", CMDcstDOTcst, false, "Dot product between string constants", args(1,3, arg("",dbl),arg("l",str),arg("r",str))),
+ pattern("batcalc", "dot", CMDcstDOTcst, false, "Dot product between blob constants", args(1,3, arg("",dbl),arg("l",blob),arg("r",blob))),
+
+ pattern("batcalc", "pcatrain", CMDbatPCATRAIN, false, "Train data and get a PCA model string", args(1,3, arg("",str), batarg("vectors",str), batarg("target_dim",int))),        
+ pattern("batcalc", "pcaapply", CMDbatPCAAPPLY, false, "Apply PCA model to vector data", args(1,3, batarg("",str), batarg("vectors",str), batarg("model_bat_id",str))),
+ pattern("batcalc", "pcaapply", CMDcstPCAAPPLYcst, false, "Apply PCA model to scalar string (Multiplexer)", args(1,3, arg("",str), arg("val",str), arg("model",str))),
+ pattern("batcalc", "pcaapply", CMDbatPCAAPPLYcst, false, "Apply PCA model (scalar) to vector data", args(1,3, batarg("",str), batarg("vectors",str), arg("model_str",str))),
+
  { .imp=NULL }
 
 };
+
 #include "mal_import.h"
 #ifdef _MSC_VER
 #undef read
