@@ -4876,30 +4876,35 @@ blob_dot_product(const blob *b1, const blob *b2)
 	return sum;
 }
 
-gdk_return
-BATcalcsimilarityjoin(BAT **r1, BAT **r2, const BAT *b1, const BAT *b2, dbl threshold)
+typedef struct {
+	const BAT *b1;
+	const BAT *b2;
+	oid start;
+	oid end;
+	dbl threshold;
+	BAT *bn1;
+	BAT *bn2;
+	gdk_return error;
+} sim_join_thread_data;
+
+static void *
+similarity_join_thread(void *data)
 {
-	BAT *bn1 = NULL, *bn2 = NULL;
-	BATiter bi1 = bat_iterator((BAT *)b1);
-	BATiter bi2 = bat_iterator((BAT *)b2);
+	sim_join_thread_data *tdata = (sim_join_thread_data *) data;
+	BATiter bi1 = bat_iterator((BAT *)tdata->b1);
+	BATiter bi2 = bat_iterator((BAT *)tdata->b2);
 	oid i, j;
-	oid n1 = BATcount(b1);
-	oid n2 = BATcount(b2);
+	oid n2 = BATcount(tdata->b2);
 
-	bn1 = COLnew(0, TYPE_oid, 1024, TRANSIENT);
-	bn2 = COLnew(0, TYPE_oid, 1024, TRANSIENT);
-	if (bn1 == NULL || bn2 == NULL)
-		goto fail;
-
-	for (i = 0; i < n1; i++) {
+	for (i = tdata->start; i < tdata->end; i++) {
 		const void *v1 = BUNtail(bi1, i);
 		blob *blob1 = NULL;
 		bool free1 = false;
 
-		if (b1->ttype == TYPE_str) {
+		if (tdata->b1->ttype == TYPE_str) {
 			blob1 = str_to_blob_vector((const char *) v1, NULL);
 			free1 = true;
-		} else if (b1->ttype == TYPE_blob) {
+		} else if (tdata->b1->ttype == TYPE_blob) {
 			blob1 = (blob *) v1;
 		}
 
@@ -4913,10 +4918,10 @@ BATcalcsimilarityjoin(BAT **r1, BAT **r2, const BAT *b1, const BAT *b2, dbl thre
 			blob *blob2 = NULL;
 			bool free2 = false;
 
-			if (b2->ttype == TYPE_str) {
+			if (tdata->b2->ttype == TYPE_str) {
 				blob2 = str_to_blob_vector((const char *) v2, NULL);
 				free2 = true;
-			} else if (b2->ttype == TYPE_blob) {
+			} else if (tdata->b2->ttype == TYPE_blob) {
 				blob2 = (blob *) v2;
 			}
 
@@ -4926,11 +4931,13 @@ BATcalcsimilarityjoin(BAT **r1, BAT **r2, const BAT *b1, const BAT *b2, dbl thre
 			}
 
 			dbl d = blob_dot_product(blob1, blob2);
-			if (d != dbl_nil && d > threshold) {
-				if (BUNappend(bn1, &i, false) != GDK_SUCCEED ||
-					BUNappend(bn2, &j, false) != GDK_SUCCEED) {
+			if (d != dbl_nil && d > tdata->threshold) {
+				if (BUNappend(tdata->bn1, &i, false) != GDK_SUCCEED ||
+					BUNappend(tdata->bn2, &j, false) != GDK_SUCCEED) {
 					if (free2) GDKfree(blob2);
-					goto fail;
+					if (free1) GDKfree(blob1);
+					tdata->error = GDK_FAIL;
+					goto cleanup;
 				}
 			}
 			if (free2) GDKfree(blob2);
@@ -4938,8 +4945,96 @@ BATcalcsimilarityjoin(BAT **r1, BAT **r2, const BAT *b1, const BAT *b2, dbl thre
 		if (free1) GDKfree(blob1);
 	}
 
+cleanup:
 	bat_iterator_end(&bi1);
 	bat_iterator_end(&bi2);
+	return NULL;
+}
+
+gdk_return
+BATcalcsimilarityjoin(BAT **r1, BAT **r2, const BAT *b1, const BAT *b2, dbl threshold)
+{
+	BAT *bn1 = NULL, *bn2 = NULL;
+	oid n1 = BATcount(b1);
+	int nthreads = GDKnr_threads;
+	pthread_t *threads = NULL;
+	sim_join_thread_data *tdata = NULL;
+	gdk_return msg = GDK_SUCCEED;
+
+	bn1 = COLnew(0, TYPE_oid, 1024, TRANSIENT);
+	bn2 = COLnew(0, TYPE_oid, 1024, TRANSIENT);
+	if (bn1 == NULL || bn2 == NULL)
+		goto fail;
+
+	if (n1 < (oid) nthreads)
+		nthreads = (int) n1;
+	if (nthreads <= 0)
+		nthreads = 1;
+
+	threads = GDKmalloc(sizeof(pthread_t) * nthreads);
+	tdata = GDKzalloc(sizeof(sim_join_thread_data) * nthreads);
+
+	if (threads == NULL || tdata == NULL)
+		goto fail;
+
+	oid chunk = n1 / nthreads;
+	for (int i = 0; i < nthreads; i++) {
+		tdata[i].b1 = b1;
+		tdata[i].b2 = b2;
+		tdata[i].start = i * chunk;
+		tdata[i].end = (i == nthreads - 1) ? n1 : (i + 1) * chunk;
+		tdata[i].threshold = threshold;
+		tdata[i].bn1 = COLnew(0, TYPE_oid, 1024, TRANSIENT);
+		tdata[i].bn2 = COLnew(0, TYPE_oid, 1024, TRANSIENT);
+		tdata[i].error = GDK_SUCCEED;
+		
+		if (tdata[i].bn1 == NULL || tdata[i].bn2 == NULL) {
+			msg = GDK_FAIL;
+			// cleanup already created ones
+			for (int j = 0; j <= i; j++) {
+				if (tdata[j].bn1) BBPreclaim(tdata[j].bn1);
+				if (tdata[j].bn2) BBPreclaim(tdata[j].bn2);
+			}
+			goto fail;
+		}
+
+		if (pthread_create(&threads[i], NULL, similarity_join_thread, &tdata[i]) != 0) {
+			msg = GDK_FAIL;
+			for (int j = 0; j <= i; j++) {
+				if (tdata[j].bn1) BBPreclaim(tdata[j].bn1);
+				if (tdata[j].bn2) BBPreclaim(tdata[j].bn2);
+			}
+			goto fail;
+		}
+	}
+
+	for (int i = 0; i < nthreads; i++) {
+		pthread_join(threads[i], NULL);
+		if (tdata[i].error != GDK_SUCCEED)
+			msg = GDK_FAIL;
+	}
+
+	if (msg == GDK_SUCCEED) {
+		for (int i = 0; i < nthreads; i++) {
+			if (BATappend(bn1, tdata[i].bn1, NULL, false) != GDK_SUCCEED ||
+				BATappend(bn2, tdata[i].bn2, NULL, false) != GDK_SUCCEED) {
+				msg = GDK_FAIL;
+				break;
+			}
+		}
+	}
+
+	for (int i = 0; i < nthreads; i++) {
+		BBPreclaim(tdata[i].bn1);
+		BBPreclaim(tdata[i].bn2);
+	}
+
+	GDKfree(threads);
+	GDKfree(tdata);
+
+	if (msg != GDK_SUCCEED)
+		goto fail;
+
 	*r1 = bn1;
 	*r2 = bn2;
 	return GDK_SUCCEED;
@@ -4947,51 +5042,45 @@ BATcalcsimilarityjoin(BAT **r1, BAT **r2, const BAT *b1, const BAT *b2, dbl thre
 fail:
 	if (bn1) BBPreclaim(bn1);
 	if (bn2) BBPreclaim(bn2);
-	bat_iterator_end(&bi1);
-	bat_iterator_end(&bi2);
+	if (threads) GDKfree(threads);
+	if (tdata) GDKfree(tdata);
 	return GDK_FAIL;
 }
 
-gdk_return
-BATcalcdot(BAT **res, const BAT *b1, const BAT *b2)
+typedef struct {
+	const BAT *b1;
+	const BAT *b2;
+	oid start;
+	oid end;
+	BAT *bn;
+	gdk_return error;
+} calcdot_thread_data;
+
+static void *
+calcdot_thread(void *data)
 {
-	BAT *bn = NULL;
-	BATiter bi1 = bat_iterator((BAT *)b1);
-	BATiter bi2 = bat_iterator((BAT *)b2);
+	calcdot_thread_data *tdata = (calcdot_thread_data *) data;
+	BATiter bi1 = bat_iterator((BAT *)tdata->b1);
+	BATiter bi2 = bat_iterator((BAT *)tdata->b2);
 	oid i;
-	oid n = BATcount(b1);
 
-	if (n != BATcount(b2)) {
-		bat_iterator_end(&bi1);
-		bat_iterator_end(&bi2);
-		GDKerror("BATcalcdot: BATs must have same count\n");
-		return GDK_FAIL;
-	}
-
-	bn = COLnew(0, TYPE_dbl, n, TRANSIENT);
-	if (bn == NULL) {
-		bat_iterator_end(&bi1);
-		bat_iterator_end(&bi2);
-		return GDK_FAIL;
-	}
-
-	for (i = 0; i < n; i++) {
+	for (i = tdata->start; i < tdata->end; i++) {
 		const void *v1 = BUNtail(bi1, i);
 		const void *v2 = BUNtail(bi2, i);
 		blob *blob1 = NULL, *blob2 = NULL;
 		bool free1 = false, free2 = false;
 
-		if (b1->ttype == TYPE_str) {
+		if (tdata->b1->ttype == TYPE_str) {
 			blob1 = str_to_blob_vector((const char *) v1, NULL);
 			free1 = true;
-		} else if (b1->ttype == TYPE_blob) {
+		} else if (tdata->b1->ttype == TYPE_blob) {
 			blob1 = (blob *) v1;
 		}
 
-		if (b2->ttype == TYPE_str) {
+		if (tdata->b2->ttype == TYPE_str) {
 			blob2 = str_to_blob_vector((const char *) v2, NULL);
 			free2 = true;
-		} else if (b2->ttype == TYPE_blob) {
+		} else if (tdata->b2->ttype == TYPE_blob) {
 			blob2 = (blob *) v2;
 		}
 
@@ -4999,27 +5088,103 @@ BATcalcdot(BAT **res, const BAT *b1, const BAT *b2)
 		if (blob1 && !is_blob_nil(blob1) && blob2 && !is_blob_nil(blob2)) {
 			d = blob_dot_product(blob1, blob2);
 		}
-		
-		if (BUNappend(bn, &d, false) != GDK_SUCCEED) {
+
+		if (BUNappend(tdata->bn, &d, false) != GDK_SUCCEED) {
 			if (free1) GDKfree(blob1);
 			if (free2) GDKfree(blob2);
-			goto fail;
+			tdata->error = GDK_FAIL;
+			goto cleanup;
 		}
 
 		if (free1) GDKfree(blob1);
 		if (free2) GDKfree(blob2);
 	}
 
+cleanup:
 	bat_iterator_end(&bi1);
 	bat_iterator_end(&bi2);
+	return NULL;
+}
+
+gdk_return
+BATcalcdot(BAT **res, const BAT *b1, const BAT *b2)
+{
+	BAT *bn = NULL;
+	oid n = BATcount(b1);
+	int nthreads = GDKnr_threads;
+	pthread_t *threads = NULL;
+	calcdot_thread_data *tdata = NULL;
+	gdk_return msg = GDK_SUCCEED;
+
+	if (n != BATcount(b2)) {
+		GDKerror("BATcalcdot: BATs must have same count\n");
+		return GDK_FAIL;
+	}
+
+	bn = COLnew(0, TYPE_dbl, n, TRANSIENT);
+	if (bn == NULL) {
+		return GDK_FAIL;
+	}
+
+	if (n < (oid) nthreads || n < 1000)
+		nthreads = 1;
+
+	threads = GDKmalloc(sizeof(pthread_t) * nthreads);
+	tdata = GDKzalloc(sizeof(calcdot_thread_data) * nthreads);
+
+	if (threads == NULL || tdata == NULL)
+		goto fail;
+
+	oid chunk = n / nthreads;
+	for (int i = 0; i < nthreads; i++) {
+		tdata[i].b1 = b1;
+		tdata[i].b2 = b2;
+		tdata[i].start = i * chunk;
+		tdata[i].end = (i == nthreads - 1) ? n : (i + 1) * chunk;
+		tdata[i].bn = COLnew(0, TYPE_dbl, tdata[i].end - tdata[i].start, TRANSIENT);
+		tdata[i].error = GDK_SUCCEED;
+
+		if (tdata[i].bn == NULL) {
+			msg = GDK_FAIL;
+			for (int j = 0; j <= i; j++) if (tdata[j].bn) BBPreclaim(tdata[j].bn);
+			goto fail;
+		}
+
+		if (pthread_create(&threads[i], NULL, calcdot_thread, &tdata[i]) != 0) {
+			msg = GDK_FAIL;
+			for (int j = 0; j <= i; j++) if (tdata[j].bn) BBPreclaim(tdata[j].bn);
+			goto fail;
+		}
+	}
+
+	for (int i = 0; i < nthreads; i++) {
+		pthread_join(threads[i], NULL);
+		if (tdata[i].error != GDK_SUCCEED) msg = GDK_FAIL;
+	}
+
+	if (msg == GDK_SUCCEED) {
+		for (int i = 0; i < nthreads; i++) {
+			if (BATappend(bn, tdata[i].bn, NULL, false) != GDK_SUCCEED) {
+				msg = GDK_FAIL;
+				break;
+			}
+		}
+	}
+
+	for (int i = 0; i < nthreads; i++) BBPreclaim(tdata[i].bn);
+	GDKfree(threads);
+	GDKfree(tdata);
+
+	if (msg != GDK_SUCCEED) goto fail;
+
 	BATsetcount(bn, n);
 	*res = bn;
 	return GDK_SUCCEED;
 
 fail:
 	if (bn) BBPreclaim(bn);
-	bat_iterator_end(&bi1);
-	bat_iterator_end(&bi2);
+	if (threads) GDKfree(threads);
+	if (tdata) GDKfree(tdata);
 	return GDK_FAIL;
 }
 
@@ -5036,56 +5201,132 @@ val_to_blob_vector(const ValRecord *v, bool *free_blob)
 	return NULL;
 }
 
-gdk_return
-BATcalcdotcst(BAT **res, const BAT *b, const ValRecord *v)
+typedef struct {
+	const BAT *b;
+	blob *blob_cst;
+	oid start;
+	oid end;
+	BAT *bn;
+	gdk_return error;
+} calcdotcst_thread_data;
+
+static void *
+calcdotcst_thread(void *data)
 {
-	BAT *bn = NULL;
-	BATiter bi = bat_iterator((BAT *)b);
-	oid i, n = BATcount(b);
-	bool free_cst = false;
-	blob *blob_cst = val_to_blob_vector(v, &free_cst);
+	calcdotcst_thread_data *tdata = (calcdotcst_thread_data *) data;
+	BATiter bi = bat_iterator((BAT *)tdata->b);
+	oid i;
 
-	bn = COLnew(0, TYPE_dbl, n, TRANSIENT);
-	if (bn == NULL) {
-		if (free_cst) GDKfree(blob_cst);
-		bat_iterator_end(&bi);
-		return GDK_FAIL;
-	}
-
-	for (i = 0; i < n; i++) {
+	for (i = tdata->start; i < tdata->end; i++) {
 		const void *val = BUNtail(bi, i);
 		blob *blob_row = NULL;
 		bool free_row = false;
 
-		if (b->ttype == TYPE_str) {
+		if (tdata->b->ttype == TYPE_str) {
 			blob_row = str_to_blob_vector((const char *) val, NULL);
 			free_row = true;
-		} else if (b->ttype == TYPE_blob) {
+		} else if (tdata->b->ttype == TYPE_blob) {
 			blob_row = (blob *) val;
 		}
 
 		dbl d = dbl_nil;
-		if (blob_cst && !is_blob_nil(blob_cst) && blob_row && !is_blob_nil(blob_row)) {
-			d = blob_dot_product(blob_cst, blob_row);
+		if (tdata->blob_cst && !is_blob_nil(tdata->blob_cst) && blob_row && !is_blob_nil(blob_row)) {
+			d = blob_dot_product(tdata->blob_cst, blob_row);
 		}
 
-		if (BUNappend(bn, &d, false) != GDK_SUCCEED) {
+		if (BUNappend(tdata->bn, &d, false) != GDK_SUCCEED) {
 			if (free_row) GDKfree(blob_row);
-			if (free_cst) GDKfree(blob_cst);
-			goto fail;
+			tdata->error = GDK_FAIL;
+			goto cleanup;
 		}
 		if (free_row) GDKfree(blob_row);
 	}
 
-	if (free_cst) GDKfree(blob_cst);
+cleanup:
 	bat_iterator_end(&bi);
+	return NULL;
+}
+
+gdk_return
+BATcalcdotcst(BAT **res, const BAT *b, const ValRecord *v)
+{
+	BAT *bn = NULL;
+	oid n = BATcount(b);
+	bool free_cst = false;
+	blob *blob_cst = val_to_blob_vector(v, &free_cst);
+	int nthreads = GDKnr_threads;
+	pthread_t *threads = NULL;
+	calcdotcst_thread_data *tdata = NULL;
+	gdk_return msg = GDK_SUCCEED;
+
+	bn = COLnew(0, TYPE_dbl, n, TRANSIENT);
+	if (bn == NULL) {
+		if (free_cst) GDKfree(blob_cst);
+		return GDK_FAIL;
+	}
+
+	if (n < (oid) nthreads || n < 1000)
+		nthreads = 1;
+
+	threads = GDKmalloc(sizeof(pthread_t) * nthreads);
+	tdata = GDKzalloc(sizeof(calcdotcst_thread_data) * nthreads);
+
+	if (threads == NULL || tdata == NULL) {
+		if (free_cst) GDKfree(blob_cst);
+		goto fail;
+	}
+
+	oid chunk = n / nthreads;
+	for (int i = 0; i < nthreads; i++) {
+		tdata[i].b = b;
+		tdata[i].blob_cst = blob_cst;
+		tdata[i].start = i * chunk;
+		tdata[i].end = (i == nthreads - 1) ? n : (i + 1) * chunk;
+		tdata[i].bn = COLnew(0, TYPE_dbl, tdata[i].end - tdata[i].start, TRANSIENT);
+		tdata[i].error = GDK_SUCCEED;
+
+		if (tdata[i].bn == NULL) {
+			msg = GDK_FAIL;
+			for (int j = 0; j <= i; j++) if (tdata[j].bn) BBPreclaim(tdata[j].bn);
+			goto fail;
+		}
+
+		if (pthread_create(&threads[i], NULL, calcdotcst_thread, &tdata[i]) != 0) {
+			msg = GDK_FAIL;
+			for (int j = 0; j <= i; j++) if (tdata[j].bn) BBPreclaim(tdata[j].bn);
+			goto fail;
+		}
+	}
+
+	for (int i = 0; i < nthreads; i++) {
+		pthread_join(threads[i], NULL);
+		if (tdata[i].error != GDK_SUCCEED) msg = GDK_FAIL;
+	}
+
+	if (msg == GDK_SUCCEED) {
+		for (int i = 0; i < nthreads; i++) {
+			if (BATappend(bn, tdata[i].bn, NULL, false) != GDK_SUCCEED) {
+				msg = GDK_FAIL;
+				break;
+			}
+		}
+	}
+
+	if (free_cst) GDKfree(blob_cst);
+	for (int i = 0; i < nthreads; i++) BBPreclaim(tdata[i].bn);
+	GDKfree(threads);
+	GDKfree(tdata);
+
+	if (msg != GDK_SUCCEED) goto fail;
+
 	BATsetcount(bn, n);
 	*res = bn;
 	return GDK_SUCCEED;
 
 fail:
 	if (bn) BBPreclaim(bn);
-	bat_iterator_end(&bi);
+	if (threads) GDKfree(threads);
+	if (tdata) GDKfree(tdata);
 	return GDK_FAIL;
 }
 

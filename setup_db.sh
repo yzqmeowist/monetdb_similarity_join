@@ -59,7 +59,7 @@ sleep 2
 
 echo "Initializing data..."
 
-"$CMD_MCLIENT" -d "$DB_NAME" <<EOF
+"$CMD_MCLIENT" -d "$DB_NAME" -t performance <<EOF
 DROP TABLE IF EXISTS uw;
 DROP TABLE IF EXISTS mw;
 
