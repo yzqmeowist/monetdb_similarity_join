@@ -5361,3 +5361,780 @@ VALcalcdot(ValPtr ret, const ValRecord *lft, const ValRecord *rgt)
 	if (free_r) GDKfree(blob_r);
 	return GDK_SUCCEED;
 }
+
+#include "gdk_calc.h"
+#include <math.h>
+#include <float.h>
+#include <string.h>
+
+// Extract vector data from BAT
+static float *
+extract_vectors_from_bat(const BAT *vectors, int *out_dim, BUN *out_count)
+{
+    BATiter bi = bat_iterator((BAT*)vectors);
+    BUN count = BATcount(vectors);
+    
+    // First pass: collect dimension information from all non-NULL vectors
+    int *dims = GDKmalloc(count * sizeof(int));
+    BUN *non_nil_indices = GDKmalloc(count * sizeof(BUN));
+    BUN non_nil_count = 0;
+    
+    if (!dims || !non_nil_indices) {
+        GDKfree(dims);
+        GDKfree(non_nil_indices);
+        bat_iterator_end(&bi);
+        return NULL;
+    }
+    
+    for (BUN i = 0; i < count; i++) {
+        const void *val = BUNtail(bi, i);
+        blob *b = NULL;
+        bool free_b = false;
+
+        if (vectors->ttype == TYPE_str) {
+            b = str_to_blob_vector((const char *) val, NULL);
+            free_b = true;
+        } else if (vectors->ttype == TYPE_blob) {
+            b = (blob *) val;
+        }
+
+        if (b && !is_blob_nil(b)) {
+            int current_dim = (int)(b->nitems / sizeof(float));
+            dims[non_nil_count] = current_dim;
+            non_nil_indices[non_nil_count] = i;
+            non_nil_count++;
+        }
+        if (free_b) GDKfree(b);
+    }
+    
+    // Count frequency of each dimension
+    int *dim_freq = NULL;
+    int unique_dims = 0;
+    int max_freq_dim = -1;
+    int max_freq = 0;
+    
+    if (non_nil_count > 0) {
+        dim_freq = GDKmalloc(non_nil_count * sizeof(int));
+        if (dim_freq) {
+            for (BUN i = 0; i < non_nil_count; i++) {
+                int found = 0;
+                for (int j = 0; j < unique_dims; j++) {
+                    if (dim_freq[j * 2] == dims[i]) {
+                        dim_freq[j * 2 + 1]++;
+                        found = 1;
+                        break;
+                    }
+                }
+                if (!found) {
+                    dim_freq[unique_dims * 2] = dims[i];
+                    dim_freq[unique_dims * 2 + 1] = 1;
+                    unique_dims++;
+                }
+            }
+            
+            // Find the most common dimension
+            for (int i = 0; i < unique_dims; i++) {
+                int d = dim_freq[i * 2];
+                int f = dim_freq[i * 2 + 1];
+                fprintf(stderr, "[EXTRACT] Dim %d: %d vectors\n", d, f);
+                if (f > max_freq) {
+                    max_freq = f;
+                    max_freq_dim = d;
+                }
+            }
+            GDKfree(dim_freq);
+        }
+    }
+    
+    // Use the most common dimension as target dimension
+    int dim = max_freq_dim;
+    if (dim <= 0) {
+        fprintf(stderr, "[EXTRACT] ERROR: No valid dimension found\n");
+        GDKfree(dims);
+        GDKfree(non_nil_indices);
+        bat_iterator_end(&bi);
+        return NULL;
+    }
+    
+    // Count vectors with target dimension
+    BUN valid_count = 0;
+    for (BUN i = 0; i < non_nil_count; i++) {
+        if (dims[i] == dim) {
+            valid_count++;
+        }
+    }
+    
+    fprintf(stderr, "[EXTRACT] Using dimension %d with %llu vectors\n", 
+            dim, (unsigned long long)valid_count);
+    
+    if (valid_count == 0) {
+        fprintf(stderr, "[EXTRACT] ERROR: No vectors with dimension %d\n", dim);
+        GDKfree(dims);
+        GDKfree(non_nil_indices);
+        bat_iterator_end(&bi);
+        return NULL;
+    }
+    
+    // Allocate memory
+    float *all_vectors = GDKmalloc(valid_count * dim * sizeof(float));
+    if (!all_vectors) {
+        GDKfree(dims);
+        GDKfree(non_nil_indices);
+        bat_iterator_end(&bi);
+        return NULL;
+    }
+    
+    // Extract vectors with target dimension, preserving original order
+    BUN idx = 0;
+    for (BUN i = 0; i < non_nil_count; i++) {
+        if (dims[i] == dim) {
+            BUN row_idx = non_nil_indices[i];
+            const void *val = BUNtail(bi, row_idx);
+            blob *b = NULL;
+            bool free_b = false;
+
+            if (vectors->ttype == TYPE_str) {
+                b = str_to_blob_vector((const char *) val, NULL);
+                free_b = true;
+            } else if (vectors->ttype == TYPE_blob) {
+                b = (blob *) val;
+            }
+
+            if (b && !is_blob_nil(b)) {
+                float *vec = (float *)b->data;
+                memcpy(&all_vectors[idx * dim], vec, dim * sizeof(float));
+                idx++;
+            }
+            
+            if (free_b) GDKfree(b);
+        }
+    }
+    
+    GDKfree(dims);
+    GDKfree(non_nil_indices);
+    bat_iterator_end(&bi);
+    
+    *out_dim = dim;
+    *out_count = valid_count;
+    
+    fprintf(stderr, "[EXTRACT] Successfully extracted %llu vectors of dimension %d\n",
+            (unsigned long long)valid_count, dim);
+    fprintf(stderr, "========== EXTRACT END ==========\n");
+    
+    return all_vectors;
+}
+
+// Power iteration method for computing dominant eigenpair
+static int
+power_iteration(float *eigenvector, float *eigenvalue, const float *matrix, int n, int max_iter)
+{
+    // Random initialization of eigenvector
+    for (int i = 0; i < n; i++) {
+        eigenvector[i] = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
+    }
+    
+    // Normalize
+    float norm = 0.0f;
+    for (int i = 0; i < n; i++) {
+        norm += eigenvector[i] * eigenvector[i];
+    }
+    norm = sqrtf(norm);
+    if (norm < FLT_EPSILON) {
+        // Use unit vector if initial vector is too small
+        for (int i = 0; i < n; i++) {
+            eigenvector[i] = (i == 0) ? 1.0f : 0.0f;
+        }
+        norm = 1.0f;
+    } else {
+        for (int i = 0; i < n; i++) {
+            eigenvector[i] /= norm;
+        }
+    }
+    
+    float *prev_vector = GDKmalloc(n * sizeof(float));
+    if (!prev_vector) return 0;
+    
+    float *temp_vector = GDKmalloc(n * sizeof(float));
+    if (!temp_vector) {
+        GDKfree(prev_vector);
+        return 0;
+    }
+    
+    // Initialize eigenvalue
+    *eigenvalue = 0.0f;
+    
+    for (int iter = 0; iter < max_iter; iter++) {
+        memcpy(prev_vector, eigenvector, n * sizeof(float));
+        
+        // Compute matrix * eigenvector
+        for (int i = 0; i < n; i++) {
+            temp_vector[i] = 0.0f;
+            for (int j = 0; j < n; j++) {
+                temp_vector[i] += matrix[i * n + j] * eigenvector[j];
+            }
+        }
+        
+        // Compute Rayleigh quotient (eigenvalue approximation)
+        // λ = (v^T * A * v) / (v^T * v)
+        float dot_vAv = 0.0f;
+        float dot_vv = 0.0f;
+        for (int i = 0; i < n; i++) {
+            dot_vAv += eigenvector[i] * temp_vector[i];
+            dot_vv += eigenvector[i] * eigenvector[i];
+        }
+        
+        if (fabsf(dot_vv) < FLT_EPSILON) {
+            // Vector too small, cannot continue
+            GDKfree(prev_vector);
+            GDKfree(temp_vector);
+            return 0;
+        }
+        
+        float new_eigenvalue = dot_vAv / dot_vv;
+        
+        // Check if eigenvalue is meaningful
+        if (!isfinite(new_eigenvalue)) {
+            GDKfree(prev_vector);
+            GDKfree(temp_vector);
+            return 0;
+        }
+        
+        *eigenvalue = new_eigenvalue;
+        
+        // Normalize to obtain new eigenvector
+        norm = 0.0f;
+        for (int i = 0; i < n; i++) {
+            norm += temp_vector[i] * temp_vector[i];
+        }
+        norm = sqrtf(norm);
+        
+        if (norm < FLT_EPSILON) {
+            // If result vector is too small, reinitialize randomly
+            for (int i = 0; i < n; i++) {
+                eigenvector[i] = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
+            }
+            norm = 0.0f;
+            for (int i = 0; i < n; i++) {
+                norm += eigenvector[i] * eigenvector[i];
+            }
+            norm = sqrtf(norm);
+            for (int i = 0; i < n; i++) {
+                eigenvector[i] /= norm;
+            }
+        } else {
+            for (int i = 0; i < n; i++) {
+                eigenvector[i] = temp_vector[i] / norm;
+            }
+        }
+        
+        // check convergence, cosine similarity of eigenvector direction change
+        float cos_similarity = 0.0f;
+        for (int i = 0; i < n; i++) {
+            cos_similarity += eigenvector[i] * prev_vector[i];
+        }
+        float angle_diff = fabsf(cos_similarity);
+        
+        // eigenvalue change (if previous iteration exists)
+        if (iter > 0) {
+            // eigenvalue should be relatively stable
+            float eigenvalue_change = fabsf(new_eigenvalue - *eigenvalue) / fabsf(new_eigenvalue);
+            
+            // dual convergence condition
+            if (angle_diff > 0.999999f && eigenvalue_change < 1e-6f) {
+                // convergence criteria satisfied
+                GDKfree(prev_vector);
+                GDKfree(temp_vector);
+                return 1;
+            }
+        } else {
+            // First iteration, only check vector direction
+            if (angle_diff > 0.999999f) {
+                GDKfree(prev_vector);
+                GDKfree(temp_vector);
+                return 1;
+            }
+        }
+    }
+    
+    // Maximum iterations reached
+    GDKfree(prev_vector);
+    GDKfree(temp_vector);
+    // Return success even without full convergence (algorithm may be close enough)
+    return 1;
+}
+
+// matrix deflation: A' = A - λ * v * v^T
+static void
+deflate_matrix(float *matrix, const float *eigenvector, float eigenvalue, int n)
+{
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            matrix[i * n + j] -= eigenvalue * eigenvector[i] * eigenvector[j];
+        }
+    }
+}
+
+// Gram-Schmidt Orthogonalization
+static void
+gram_schmidt(float *vectors, int num_vectors, int dim)
+{
+    for (int i = 0; i < num_vectors; i++) {
+        float *vi = &vectors[i * dim];
+        
+        // orthogonalization with previous vectors
+        for (int j = 0; j < i; j++) {
+            float *vj = &vectors[j * dim];
+            float dot = 0.0f;
+            for (int k = 0; k < dim; k++) dot += vi[k] * vj[k];
+            for (int k = 0; k < dim; k++) vi[k] -= dot * vj[k];
+        }
+        
+        // normalization
+        float norm = 0.0f;
+        for (int k = 0; k < dim; k++) norm += vi[k] * vi[k];
+        norm = sqrtf(norm);
+        if (norm > FLT_EPSILON) {
+            for (int k = 0; k < dim; k++) vi[k] /= norm;
+        }
+    }
+}
+
+// kernel function type 
+typedef enum {
+    KERNEL_RBF = 0  
+} kernel_type;
+
+// kernel function parameter
+typedef struct {
+    kernel_type type;
+    float gamma;    
+} kernel_params;
+
+// automatically calculate gamma value (using "median heuristic").
+static float
+compute_gamma(const float *samples, int n_samples, int dim)
+{
+    // Randomly sample some pairs of points and calculate the median distance
+    int n_pairs = MIN(1000, n_samples * (n_samples - 1) / 2);
+    float *dists = GDKmalloc(n_pairs * sizeof(float));
+    
+    if (!dists) return 1.0f / dim; 
+    
+    int idx = 0;
+    for (int i = 0; i < n_samples && idx < n_pairs; i++) {
+        const float *x = &samples[i * dim];
+        for (int j = i + 1; j < n_samples && idx < n_pairs; j++) {
+            const float *y = &samples[j * dim];
+            
+            float dist2 = 0.0f;
+            for (int k = 0; k < dim; k++) {
+                float d = x[k] - y[k];
+                dist2 += d * d;
+            }
+            dists[idx++] = sqrtf(dist2);
+        }
+    }
+    
+		//find median
+    for (int i = 0; i < idx - 1; i++) {
+        for (int j = 0; j < idx - i - 1; j++) {
+            if (dists[j] > dists[j + 1]) {
+                float tmp = dists[j];
+                dists[j] = dists[j + 1];
+                dists[j + 1] = tmp;
+            }
+        }
+    }
+    
+    float median = dists[idx / 2];
+    GDKfree(dists);
+    
+    // gamma = 1 / (2 * σ²)，where σ is the median of the distance.
+    return 1.0f / (2.0f * median * median + 1e-10);
+}
+
+// RBF kernal function calculate
+static float
+rbf_kernel(const float *x, const float *y, int dim, float gamma)
+{
+    float dist2 = 0.0f;
+    for (int i = 0; i < dim; i++) {
+        float d = x[i] - y[i];
+        dist2 += d * d;
+    }
+    return expf(-gamma * dist2);
+}
+
+// calculate kernel matrix
+static float*
+compute_kernel_matrix(const float *samples, int n_samples, int dim, float gamma)
+{
+    float *K = GDKmalloc(n_samples * n_samples * sizeof(float));
+    if (!K) return NULL;
+    
+    for (int i = 0; i < n_samples; i++) {
+        const float *x = &samples[i * dim];
+        for (int j = 0; j <= i; j++) {
+            const float *y = &samples[j * dim];
+            float k = rbf_kernel(x, y, dim, gamma);
+            K[i * n_samples + j] = k;
+            K[j * n_samples + i] = k;
+        }
+    }
+    return K;
+}
+
+// center the kernel matrix and return the mean parameter
+static void
+center_kernel_matrix(float *K, int n, float **out_row_mean, float *out_total_mean)
+{
+    float *row_mean = GDKmalloc(n * sizeof(float));
+    float total_mean = 0.0f;
+    
+    for (int i = 0; i < n; i++) {
+        row_mean[i] = 0.0f;
+        for (int j = 0; j < n; j++) {
+            row_mean[i] += K[i * n + j];
+        }
+        row_mean[i] /= n;
+        total_mean += row_mean[i];
+    }
+    total_mean /= n;
+    
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            // K_centered = K - 1_N K - K 1_N + 1_N K 1_N
+            K[i * n + j] -= row_mean[i] + row_mean[j] - total_mean;
+        }
+    }
+    
+    *out_row_mean = row_mean;
+    *out_total_mean = total_mean;
+}
+
+// Kernel PCA train function
+char* BATcalcpcatrain(const BAT *vectors, int target_dim)
+{
+    int original_dim;
+    BUN sample_count;
+    
+    fprintf(stderr, "\n========== KERNEL PCA TRAIN DEBUG ==========\n");
+    fprintf(stderr, "[KPCA] target_dim=%d\n", target_dim);
+    
+    // extract data and chect target dim
+    float *all_vectors = extract_vectors_from_bat(vectors, &original_dim, &sample_count);
+    
+    if (!all_vectors || sample_count < 2) {
+        fprintf(stderr, "[KPCA] ERROR: Not enough samples\n");
+        if (all_vectors) GDKfree(all_vectors);
+        return GDK_FAIL;
+    }
+    
+    if (target_dim <= 0 || target_dim > (int)sample_count) {
+        fprintf(stderr, "[KPCA] ERROR: target_dim must be <= sample_count\n");
+        GDKfree(all_vectors);
+        return GDK_FAIL;
+    }
+    
+    // calculate parameter gama
+    float gamma = compute_gamma(all_vectors, sample_count, original_dim);
+    fprintf(stderr, "[KPCA] Auto-computed gamma = %f\n", gamma);
+    
+    // calculate kernal matrix
+    float *K = compute_kernel_matrix(all_vectors, sample_count, original_dim, gamma);
+    if (!K) {
+        GDKfree(all_vectors);
+        return GDK_FAIL;
+    }
+    
+    float *row_mean = NULL;
+    float total_mean = 0.0f;
+    center_kernel_matrix(K, sample_count, &row_mean, &total_mean);
+    
+    float *alphas = GDKmalloc(sample_count * target_dim * sizeof(float));
+    float *eigenvalues = GDKmalloc(target_dim * sizeof(float));
+    float *temp_K = GDKmalloc(sample_count * sample_count * sizeof(float));
+    
+    if (!alphas || !eigenvalues || !temp_K) {
+        GDKfree(K);
+        GDKfree(all_vectors);
+        if (alphas) GDKfree(alphas);
+        if (eigenvalues) GDKfree(eigenvalues);
+        if (temp_K) GDKfree(temp_K);
+        if (row_mean) GDKfree(row_mean);
+        return GDK_FAIL;
+    }
+    
+    memcpy(temp_K, K, sample_count * sample_count * sizeof(float));
+    
+    // calculate eigenvector
+    for (int comp = 0; comp < target_dim; comp++) {
+        float *alpha = &alphas[comp * sample_count];
+        float eigenvalue = 0.0f;
+        
+        fprintf(stderr, "[KPCA] Computing component %d/%d\n", comp+1, target_dim);
+        
+        if (!power_iteration(alpha, &eigenvalue, temp_K, sample_count, 500)) {
+            fprintf(stderr, "[KPCA] Power iteration FAILED\n");
+            GDKfree(K);
+            GDKfree(all_vectors);
+            GDKfree(alphas);
+            GDKfree(eigenvalues);
+            GDKfree(temp_K);
+            return GDK_FAIL;
+        }
+        
+        eigenvalues[comp] = eigenvalue;
+        
+        //eigenvector normalization
+        float norm = 0.0f;
+        for (int i = 0; i < sample_count; i++) {
+            norm += alpha[i] * alpha[i];
+        }
+        norm = sqrtf(norm);
+        
+        float scale = 1e-10f;
+        if (eigenvalue > 1e-10f) {
+            scale = norm * sqrtf(eigenvalue);
+        } else {
+            scale = norm; //prevent crash
+        }
+        
+        if (scale > 1e-10f) {
+            for (int i = 0; i < sample_count; i++) {
+                alpha[i] /= scale;
+            }
+        }
+
+        deflate_matrix(temp_K, alpha, eigenvalue, sample_count);
+    }
+    
+    // Gram-Schmidt Orthogonalization
+    gram_schmidt(alphas, target_dim, sample_count);
+    size_t total_floats = 1 + 1 + sample_count + target_dim + (sample_count * original_dim) + (sample_count * target_dim);
+    size_t buf_size = (total_floats + 10) * 24 + 128;
+    
+    char *model_str = GDKmalloc(buf_size);
+    if (!model_str) {
+        GDKfree(K); GDKfree(all_vectors); GDKfree(alphas); 
+        GDKfree(eigenvalues); GDKfree(temp_K); if (row_mean) GDKfree(row_mean);
+        return GDK_FAIL;
+    }
+    
+    char *ptr = model_str;
+    size_t remaining = buf_size;
+    int written;
+    
+    written = snprintf(ptr, remaining, "%e,%llu,%d,%d,%e,", gamma, (unsigned long long)sample_count, original_dim, target_dim, total_mean);
+    ptr += written; remaining -= written;
+    
+    for (BUN i = 0; i < sample_count; i++) {
+        written = snprintf(ptr, remaining, "%e,", row_mean[i]);
+        ptr += written; remaining -= written;
+    }
+    
+    for (int i = 0; i < target_dim; i++) {
+        written = snprintf(ptr, remaining, "%e,", eigenvalues[i]);
+        ptr += written; remaining -= written;
+    }
+    
+    for (BUN i = 0; i < sample_count * original_dim; i++) {
+        written = snprintf(ptr, remaining, "%e,", all_vectors[i]);
+        ptr += written; remaining -= written;
+    }
+    
+    // main component coefficient
+    for (BUN i = 0; i < sample_count * target_dim; i++) {
+        written = snprintf(ptr, remaining, "%e%s", alphas[i], (i == sample_count * target_dim - 1) ? "" : ",");
+        ptr += written; remaining -= written;
+    }
+    
+    GDKfree(K);
+    GDKfree(all_vectors);
+    GDKfree(alphas);
+    GDKfree(eigenvalues);
+    GDKfree(temp_K);
+    if (row_mean) GDKfree(row_mean);
+    
+    fprintf(stderr, "[KPCA] Model serialized successfully.\n");
+    
+    // return the pointer
+    return model_str;
+}
+
+// define model structure and release it
+typedef struct {
+    float gamma;
+    BUN sample_count;
+    int original_dim;
+    int target_dim;
+    float total_mean;
+    float *row_mean;
+    float *eigenvalues;
+    float *all_vectors;
+    float *alphas;
+} KPCAModel;
+
+static KPCAModel* parse_kpca_model(const char *model_str) {
+    KPCAModel *model = GDKmalloc(sizeof(KPCAModel));
+    if (!model) return NULL;
+
+    char *ptr = (char *)model_str;
+    char *endptr;
+
+    model->gamma = strtof(ptr, &endptr); ptr = endptr + 1;
+    model->sample_count = (BUN)strtoull(ptr, &endptr, 10); ptr = endptr + 1;
+    model->original_dim = (int)strtol(ptr, &endptr, 10); ptr = endptr + 1;
+    model->target_dim = (int)strtol(ptr, &endptr, 10); ptr = endptr + 1;
+    model->total_mean = strtof(ptr, &endptr); ptr = endptr + 1;
+
+    BUN N = model->sample_count;
+    int odim = model->original_dim;
+    int tdim = model->target_dim;
+
+    model->row_mean = GDKmalloc(N * sizeof(float));
+    model->eigenvalues = GDKmalloc(tdim * sizeof(float));
+    model->all_vectors = GDKmalloc(N * odim * sizeof(float));
+    model->alphas = GDKmalloc(N * tdim * sizeof(float));
+
+    if (!model->row_mean || !model->eigenvalues || !model->all_vectors || !model->alphas) {
+        return NULL; 
+    }
+
+    for (BUN i = 0; i < N; i++) {
+        model->row_mean[i] = strtof(ptr, &endptr); ptr = endptr + 1;
+    }
+    for (int i = 0; i < tdim; i++) {
+        model->eigenvalues[i] = strtof(ptr, &endptr); ptr = endptr + 1;
+    }
+    for (BUN i = 0; i < N * odim; i++) {
+        model->all_vectors[i] = strtof(ptr, &endptr); ptr = endptr + 1;
+    }
+    for (BUN i = 0; i < N * tdim; i++) {
+        model->alphas[i] = strtof(ptr, &endptr); ptr = endptr + (*endptr == ',' ? 1 : 0);
+    }
+
+    return model;
+}
+
+static void free_kpca_model(KPCAModel *model) {
+    if (model) {
+        if (model->row_mean) GDKfree(model->row_mean);
+        if (model->eigenvalues) GDKfree(model->eigenvalues);
+        if (model->all_vectors) GDKfree(model->all_vectors);
+        if (model->alphas) GDKfree(model->alphas);
+        GDKfree(model);
+    }
+}
+
+//dimension deduction projection
+static void project_single_vector(const float *x_new, const KPCAModel *model, float *out_vec) {
+    BUN N = model->sample_count;
+    int odim = model->original_dim;
+    int tdim = model->target_dim;
+    
+    float *k_values = GDKmalloc(N * sizeof(float));
+    float k_new_mean = 0.0f;
+
+    for (BUN i = 0; i < N; i++) {
+        float dist2 = 0.0f;
+        const float *x_train = &model->all_vectors[i * odim];
+        for (int j = 0; j < odim; j++) {
+            float d = x_new[j] - x_train[j];
+            dist2 += d * d;
+        }
+        k_values[i] = expf(-model->gamma * dist2);
+        k_new_mean += k_values[i];
+    }
+    k_new_mean /= N;
+
+    for (int k = 0; k < tdim; k++) out_vec[k] = 0.0f;
+
+    for (BUN i = 0; i < N; i++) {
+        float k_centered = k_values[i] - k_new_mean - model->row_mean[i] + model->total_mean;
+        for (int k = 0; k < tdim; k++) {
+            out_vec[k] += model->alphas[k * N + i] * k_centered;
+        }
+    }
+    
+    GDKfree(k_values);
+}
+
+// compression similarity join, pca_apply
+gdk_return
+BATcalcpcaapply(BAT **res, BAT *vec_bat, const char *model_str)
+{
+    fprintf(stderr, "[GDK-PCA-APPLY] Starting model parsing...\n");
+    KPCAModel *kpca_model = parse_kpca_model(model_str);
+    if (!kpca_model) {
+        GDKerror("Failed to parse KPCA model string.\n");
+        return GDK_FAIL;
+    }
+    
+    fprintf(stderr, "[GDK-PCA-APPLY] Model parsed successfully! N=%zu, orig_dim=%d, target_dim=%d\n", 
+            (size_t)kpca_model->sample_count, kpca_model->original_dim, kpca_model->target_dim);
+
+    BAT *out_bat = COLnew(vec_bat->hseqbase, TYPE_str, BATcount(vec_bat), TRANSIENT);
+    if (out_bat == NULL) {
+        free_kpca_model(kpca_model);
+        return GDK_FAIL;
+    }
+
+    BATiter vec_bi = bat_iterator(vec_bat);
+    BUN count = BATcount(vec_bat);
+    float *new_vec = GDKmalloc(kpca_model->target_dim * sizeof(float));
+    char out_str[2048]; 
+
+		for (BUN i = 0; i < count; i++) {
+        const void *val = BUNtail(vec_bi, i); 
+        blob *b = NULL;
+        bool free_b = false;
+
+        if (vec_bat->ttype == TYPE_str) {
+            b = str_to_blob_vector((const char *) val, NULL);
+            free_b = true;
+        } else if (vec_bat->ttype == TYPE_blob) {
+            b = (blob *) val;
+        }
+
+        // If this line is an SQL NULL, output NULL directly and skip the calculation!
+        if (!b || is_blob_nil(b)) {
+            if (BUNappend(out_bat, str_nil, false) != GDK_SUCCEED) {
+                if (free_b) GDKfree(b);
+                free_kpca_model(kpca_model);
+                GDKfree(new_vec);
+                BBPunfix(out_bat->batCacheid);
+                bat_iterator_end(&vec_bi);
+                return GDK_FAIL;
+            }
+            if (free_b) GDKfree(b);
+            continue; 
+        }
+
+        float *input_floats = (float *)b->data; 
+        project_single_vector(input_floats, kpca_model, new_vec);
+
+        char *ptr = out_str;
+        for(int k = 0; k < kpca_model->target_dim; k++) {
+            ptr += sprintf(ptr, "%f%s", new_vec[k], (k == kpca_model->target_dim - 1) ? "" : ",");
+        }
+        
+        if (BUNappend(out_bat, out_str, false) != GDK_SUCCEED) {
+            if (free_b) GDKfree(b);
+            free_kpca_model(kpca_model);
+            GDKfree(new_vec);
+            BBPunfix(out_bat->batCacheid);
+            bat_iterator_end(&vec_bi);
+            return GDK_FAIL;
+        }
+        
+        if (free_b) GDKfree(b);
+    }
+
+    bat_iterator_end(&vec_bi);
+    GDKfree(new_vec);
+    free_kpca_model(kpca_model);
+
+    *res = out_bat;
+    return GDK_SUCCEED;
+}

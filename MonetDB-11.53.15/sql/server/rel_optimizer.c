@@ -581,6 +581,108 @@ bind_merge_table_rewrite(visitor *v, global_props *gp)
 	return gp->needs_mergetable_rewrite ? rel_merge_table_rewrite : NULL;
 }
 
+// global pca pointer
+extern char *g_pca_active_model;
+
+static sql_exp *
+rewrite_dot_exp(visitor *v, sql_exp *e)
+{
+    if (!e) return e;
+
+    if (e->type == e_func && e->l) {
+        list *args = e->l;
+        for (node *n = args->h; n; n = n->next) {
+            n->data = rewrite_dot_exp(v, n->data);
+        }
+    } else if (e->type == e_cmp) {
+        e->l = rewrite_dot_exp(v, e->l);
+        e->r = rewrite_dot_exp(v, e->r);
+    }
+
+    // intercept "dot" instruction
+    if (e->type == e_func && e->f) {
+        sql_subfunc *f = (sql_subfunc *) e->f; 
+        
+        if (f->func && f->func->base.name && strcmp(f->func->base.name, "dot") == 0) {
+            
+            list *args = e->l;
+            if (!args || list_length(args) < 2) return e;
+
+            sql_exp *arg1 = args->h->data;
+            sql_exp *arg2 = args->h->next->data;
+            if (!arg1 || !arg2) return e;
+
+            if (arg1->type == e_func && arg1->f) {
+                sql_subfunc *sf = (sql_subfunc *) arg1->f;
+                if (sf->func && sf->func->base.name && 
+                    strcmp(sf->func->base.name, "pcaapply") == 0) {
+                    return e; 
+                }
+            }
+
+            // check whether user use pca train the data
+            if (g_pca_active_model == NULL) {
+                return e;
+            }
+            
+            char *m_str = sa_strdup(v->sql->sa, g_pca_active_model);
+
+            sql_subtype tpe_str;
+            sql_find_subtype(&tpe_str, "varchar", 0, 0); 
+            
+            atom *a1 = atom_string(v->sql->sa, &tpe_str, m_str);
+            atom *a2 = atom_string(v->sql->sa, &tpe_str, m_str);
+            if (!a1 || !a2) return e;
+
+            sql_exp *model_exp1 = exp_atom(v->sql->sa, a1);
+            sql_exp *model_exp2 = exp_atom(v->sql->sa, a2);
+
+            sql_subfunc *pca_f1 = sql_bind_func(v->sql, "sys", "pcaapply", &tpe_str, &tpe_str, F_FUNC, false, false);
+            sql_subfunc *pca_f2 = sql_bind_func(v->sql, "sys", "pcaapply", &tpe_str, &tpe_str, F_FUNC, false, false);
+
+            if (!pca_f1 || !pca_f2) return e;
+
+            sql_exp *new_arg1 = exp_binop(v->sql->sa, arg1, model_exp1, pca_f1);
+            sql_exp *new_arg2 = exp_binop(v->sql->sa, arg2, model_exp2, pca_f2);
+            
+            if (!new_arg1 || !new_arg2) return e;
+
+            args->h->data = new_arg1;
+            args->h->next->data = new_arg2;
+            v->changes++;
+        }
+    }
+    return e;
+}
+
+static sql_rel *
+rel_pca_rewrite_(visitor *v, sql_rel *rel)
+{
+    if (!rel) return rel;
+    if (rel->exps) {
+        for (node *n = rel->exps->h; n; n = n->next) {
+            n->data = rewrite_dot_exp(v, n->data);
+        }
+    }
+    return rel;
+}
+
+static sql_rel *
+rel_pca_rewrite(visitor *v, global_props *gp, sql_rel *rel)
+{
+    (void) gp;
+    return rel_visitor_bottomup(v, rel, &rel_pca_rewrite_);
+}
+
+run_optimizer
+bind_pca_rewrite(visitor *v, global_props *gp)
+{
+    (void) v;
+    return rel_pca_rewrite; 
+}
+
+
+
 /* these optimizers/rewriters run in a cycle loop */
 const sql_optimizer pre_sql_optimizers[] = {
 	{ 0, "split_select", bind_split_select},
@@ -605,6 +707,7 @@ const sql_optimizer pre_sql_optimizers[] = {
 	{19, "push_topn_and_sample_down", bind_push_topn_and_sample_down},
 	{20, "distinct_project2groupby", bind_distinct_project2groupby},
 	{21, "merge_table_rewrite", bind_merge_table_rewrite},
+	{22, "pca_rewrite", bind_pca_rewrite},
 	{ 0, NULL, NULL}
 };
 
