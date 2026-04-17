@@ -6027,13 +6027,13 @@ static void free_kpca_model(KPCAModel *model) {
     }
 }
 
-//dimension deduction projection
-static void project_single_vector(const float *x_new, const KPCAModel *model, float *out_vec) {
+static void 
+project_single_vector(const float *x_new, const KPCAModel *model, float *out_vec, float *k_values) 
+{
     BUN N = model->sample_count;
     int odim = model->original_dim;
     int tdim = model->target_dim;
     
-    float *k_values = GDKmalloc(N * sizeof(float));
     float k_new_mean = 0.0f;
 
     for (BUN i = 0; i < N; i++) {
@@ -6056,85 +6056,278 @@ static void project_single_vector(const float *x_new, const KPCAModel *model, fl
             out_vec[k] += model->alphas[k * N + i] * k_centered;
         }
     }
-    
-    GDKfree(k_values);
 }
 
-// compression similarity join, pca_apply
-gdk_return
-BATcalcpcaapply(BAT **res, BAT *vec_bat, const char *model_str)
+typedef struct {
+    BAT *vec_bat;                
+    const KPCAModel *model;      
+    oid start;                   
+    oid end;                     
+    BAT *bn;                     
+    gdk_return error;          
+} pcaapply_thread_data;
+
+static void *
+pcaapply_thread(void *data)
 {
-    fprintf(stderr, "[GDK-PCA-APPLY] Starting model parsing...\n");
-    KPCAModel *kpca_model = parse_kpca_model(model_str);
-    if (!kpca_model) {
-        GDKerror("Failed to parse KPCA model string.\n");
-        return GDK_FAIL;
-    }
+    pcaapply_thread_data *tdata = (pcaapply_thread_data *) data;
+    BATiter vec_bi = bat_iterator(tdata->vec_bat);
     
-    fprintf(stderr, "[GDK-PCA-APPLY] Model parsed successfully! N=%zu, orig_dim=%d, target_dim=%d\n", 
-            (size_t)kpca_model->sample_count, kpca_model->original_dim, kpca_model->target_dim);
-
-    BAT *out_bat = COLnew(vec_bat->hseqbase, TYPE_str, BATcount(vec_bat), TRANSIENT);
-    if (out_bat == NULL) {
-        free_kpca_model(kpca_model);
-        return GDK_FAIL;
-    }
-
-    BATiter vec_bi = bat_iterator(vec_bat);
-    BUN count = BATcount(vec_bat);
-    float *new_vec = GDKmalloc(kpca_model->target_dim * sizeof(float));
+    float *new_vec = GDKmalloc(tdata->model->target_dim * sizeof(float));
+    float *k_buffer = GDKmalloc(tdata->model->sample_count * sizeof(float));
     char out_str[2048]; 
 
-		for (BUN i = 0; i < count; i++) {
+    if (!new_vec || !k_buffer) {
+        tdata->error = GDK_FAIL;
+        goto cleanup;
+    }
+
+    for (oid i = tdata->start; i < tdata->end; i++) {
         const void *val = BUNtail(vec_bi, i); 
         blob *b = NULL;
         bool free_b = false;
 
-        if (vec_bat->ttype == TYPE_str) {
+        if (tdata->vec_bat->ttype == TYPE_str) {
             b = str_to_blob_vector((const char *) val, NULL);
             free_b = true;
-        } else if (vec_bat->ttype == TYPE_blob) {
+        } else if (tdata->vec_bat->ttype == TYPE_blob) {
             b = (blob *) val;
         }
 
-        // If this line is an SQL NULL, output NULL directly and skip the calculation!
         if (!b || is_blob_nil(b)) {
-            if (BUNappend(out_bat, str_nil, false) != GDK_SUCCEED) {
+            if (BUNappend(tdata->bn, str_nil, false) != GDK_SUCCEED) {
                 if (free_b) GDKfree(b);
-                free_kpca_model(kpca_model);
-                GDKfree(new_vec);
-                BBPunfix(out_bat->batCacheid);
-                bat_iterator_end(&vec_bi);
-                return GDK_FAIL;
+                tdata->error = GDK_FAIL;
+                goto cleanup;
             }
             if (free_b) GDKfree(b);
             continue; 
         }
 
         float *input_floats = (float *)b->data; 
-        project_single_vector(input_floats, kpca_model, new_vec);
+        project_single_vector(input_floats, tdata->model, new_vec, k_buffer);
 
         char *ptr = out_str;
-        for(int k = 0; k < kpca_model->target_dim; k++) {
-            ptr += sprintf(ptr, "%f%s", new_vec[k], (k == kpca_model->target_dim - 1) ? "" : ",");
+        for (int k = 0; k < tdata->model->target_dim; k++) {
+            ptr += sprintf(ptr, "%f%s", new_vec[k], (k == tdata->model->target_dim - 1) ? "" : ",");
         }
         
-        if (BUNappend(out_bat, out_str, false) != GDK_SUCCEED) {
+        if (BUNappend(tdata->bn, out_str, false) != GDK_SUCCEED) {
             if (free_b) GDKfree(b);
-            free_kpca_model(kpca_model);
-            GDKfree(new_vec);
-            BBPunfix(out_bat->batCacheid);
-            bat_iterator_end(&vec_bi);
-            return GDK_FAIL;
+            tdata->error = GDK_FAIL;
+            goto cleanup;
         }
-        
         if (free_b) GDKfree(b);
     }
 
+cleanup:
     bat_iterator_end(&vec_bi);
-    GDKfree(new_vec);
+    if (new_vec) GDKfree(new_vec);
+    if (k_buffer) GDKfree(k_buffer);
+    return NULL;
+}
+
+gdk_return
+BATcalcpcaapply(BAT **res, BAT *vec_bat, const char *model_str)
+{
+    KPCAModel *kpca_model = parse_kpca_model(model_str);
+    if (!kpca_model) {
+        GDKerror("Failed to parse KPCA model string.\n");
+        return GDK_FAIL;
+    }
+
+    oid n = BATcount(vec_bat);
+    // int nthreads = GDKnr_threads;
+		int nthreads = 1;
+    pthread_t *threads = NULL;
+    pcaapply_thread_data *tdata = NULL;
+    gdk_return msg = GDK_SUCCEED;
+    BAT *out_bat = NULL;
+
+    // if (n < (oid) nthreads || n < 1000) {
+    //     nthreads = 1;
+    // }
+
+		fprintf(stderr, "\n[PERF-PCA] Executing pcaapply with %d threads for %llu rows!!!\n", nthreads, (unsigned long long)n);
+
+    out_bat = COLnew(vec_bat->hseqbase, TYPE_str, n, TRANSIENT);
+    if (!out_bat) {
+        free_kpca_model(kpca_model);
+        return GDK_FAIL;
+    }
+
+    threads = GDKmalloc(sizeof(pthread_t) * nthreads);
+    tdata = GDKzalloc(sizeof(pcaapply_thread_data) * nthreads);
+
+    if (!threads || !tdata) {
+        msg = GDK_FAIL;
+        goto fail;
+    }
+
+    oid chunk = n / nthreads;
+    for (int i = 0; i < nthreads; i++) {
+        tdata[i].vec_bat = vec_bat;
+        tdata[i].model = kpca_model;
+        tdata[i].start = i * chunk;
+        tdata[i].end = (i == nthreads - 1) ? n : (i + 1) * chunk;
+        tdata[i].error = GDK_SUCCEED;
+        
+        tdata[i].bn = COLnew(0, TYPE_str, tdata[i].end - tdata[i].start, TRANSIENT);
+        
+        if (tdata[i].bn == NULL) {
+            msg = GDK_FAIL;
+            for (int j = 0; j <= i; j++) if (tdata[j].bn) BBPreclaim(tdata[j].bn);
+            goto fail;
+        }
+
+        if (pthread_create(&threads[i], NULL, pcaapply_thread, &tdata[i]) != 0) {
+            msg = GDK_FAIL;
+            for (int j = 0; j <= i; j++) if (tdata[j].bn) BBPreclaim(tdata[j].bn);
+            goto fail;
+        }
+    }
+
+    for (int i = 0; i < nthreads; i++) {
+        pthread_join(threads[i], NULL);
+        if (tdata[i].error != GDK_SUCCEED) msg = GDK_FAIL;
+    }
+
+    if (msg == GDK_SUCCEED) {
+        for (int i = 0; i < nthreads; i++) {
+            if (BATappend(out_bat, tdata[i].bn, NULL, false) != GDK_SUCCEED) {
+                msg = GDK_FAIL;
+                break;
+            }
+        }
+    }
+
+    for (int i = 0; i < nthreads; i++) {
+        BBPreclaim(tdata[i].bn); 
+    }
+
+fail:
+    if (threads) GDKfree(threads);
+    if (tdata) GDKfree(tdata);
     free_kpca_model(kpca_model);
 
+    if (msg != GDK_SUCCEED) {
+        if (out_bat) BBPreclaim(out_bat);
+        return GDK_FAIL;
+    }
+
+    BATsetcount(out_bat, n);
     *res = out_bat;
     return GDK_SUCCEED;
 }
+
+//dimension deduction projection
+// static void project_single_vector(const float *x_new, const KPCAModel *model, float *out_vec) {
+//     BUN N = model->sample_count;
+//     int odim = model->original_dim;
+//     int tdim = model->target_dim;
+    
+//     float *k_values = GDKmalloc(N * sizeof(float));
+//     float k_new_mean = 0.0f;
+
+//     for (BUN i = 0; i < N; i++) {
+//         float dist2 = 0.0f;
+//         const float *x_train = &model->all_vectors[i * odim];
+//         for (int j = 0; j < odim; j++) {
+//             float d = x_new[j] - x_train[j];
+//             dist2 += d * d;
+//         }
+//         k_values[i] = expf(-model->gamma * dist2);
+//         k_new_mean += k_values[i];
+//     }
+//     k_new_mean /= N;
+
+//     for (int k = 0; k < tdim; k++) out_vec[k] = 0.0f;
+
+//     for (BUN i = 0; i < N; i++) {
+//         float k_centered = k_values[i] - k_new_mean - model->row_mean[i] + model->total_mean;
+//         for (int k = 0; k < tdim; k++) {
+//             out_vec[k] += model->alphas[k * N + i] * k_centered;
+//         }
+//     }
+    
+//     GDKfree(k_values);
+// }
+
+// compression similarity join, pca_apply
+// gdk_return
+// BATcalcpcaapply(BAT **res, BAT *vec_bat, const char *model_str)
+// {
+//     fprintf(stderr, "[GDK-PCA-APPLY] Starting model parsing...\n");
+//     KPCAModel *kpca_model = parse_kpca_model(model_str);
+//     if (!kpca_model) {
+//         GDKerror("Failed to parse KPCA model string.\n");
+//         return GDK_FAIL;
+//     }
+    
+//     fprintf(stderr, "[GDK-PCA-APPLY] Model parsed successfully! N=%zu, orig_dim=%d, target_dim=%d\n", 
+//             (size_t)kpca_model->sample_count, kpca_model->original_dim, kpca_model->target_dim);
+
+//     BAT *out_bat = COLnew(vec_bat->hseqbase, TYPE_str, BATcount(vec_bat), TRANSIENT);
+//     if (out_bat == NULL) {
+//         free_kpca_model(kpca_model);
+//         return GDK_FAIL;
+//     }
+
+//     BATiter vec_bi = bat_iterator(vec_bat);
+//     BUN count = BATcount(vec_bat);
+//     float *new_vec = GDKmalloc(kpca_model->target_dim * sizeof(float));
+//     char out_str[2048]; 
+
+// 		for (BUN i = 0; i < count; i++) {
+//         const void *val = BUNtail(vec_bi, i); 
+//         blob *b = NULL;
+//         bool free_b = false;
+
+//         if (vec_bat->ttype == TYPE_str) {
+//             b = str_to_blob_vector((const char *) val, NULL);
+//             free_b = true;
+//         } else if (vec_bat->ttype == TYPE_blob) {
+//             b = (blob *) val;
+//         }
+
+//         // If this line is an SQL NULL, output NULL directly and skip the calculation!
+//         if (!b || is_blob_nil(b)) {
+//             if (BUNappend(out_bat, str_nil, false) != GDK_SUCCEED) {
+//                 if (free_b) GDKfree(b);
+//                 free_kpca_model(kpca_model);
+//                 GDKfree(new_vec);
+//                 BBPunfix(out_bat->batCacheid);
+//                 bat_iterator_end(&vec_bi);
+//                 return GDK_FAIL;
+//             }
+//             if (free_b) GDKfree(b);
+//             continue; 
+//         }
+
+//         float *input_floats = (float *)b->data; 
+//         project_single_vector(input_floats, kpca_model, new_vec);
+
+//         char *ptr = out_str;
+//         for(int k = 0; k < kpca_model->target_dim; k++) {
+//             ptr += sprintf(ptr, "%f%s", new_vec[k], (k == kpca_model->target_dim - 1) ? "" : ",");
+//         }
+        
+//         if (BUNappend(out_bat, out_str, false) != GDK_SUCCEED) {
+//             if (free_b) GDKfree(b);
+//             free_kpca_model(kpca_model);
+//             GDKfree(new_vec);
+//             BBPunfix(out_bat->batCacheid);
+//             bat_iterator_end(&vec_bi);
+//             return GDK_FAIL;
+//         }
+        
+//         if (free_b) GDKfree(b);
+//     }
+
+//     bat_iterator_end(&vec_bi);
+//     GDKfree(new_vec);
+//     free_kpca_model(kpca_model);
+
+//     *res = out_bat;
+//     return GDK_SUCCEED;
+// }

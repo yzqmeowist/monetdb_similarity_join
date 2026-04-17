@@ -135,7 +135,7 @@
 # echo "    export DOTMONETDBFILE=\"$AUTH_FILE\""
 # echo "    export PATH=\"$BIN_DIR:\$PATH\""
 # echo "    mclient -d $DB_NAME"
-# !/bin/bash
+#!/bin/bash
 set -e
 
 ROOT_DIR=$(pwd)
@@ -191,13 +191,13 @@ else
     "$CMD_MONETDB" create "$DB_NAME" || { echo "failed to create"; exit 1; }
 fi
 
+# "$CMD_MONETDB" set gdk_nr_threads=1 "$DB_NAME"
 "$CMD_MONETDB" release "$DB_NAME"
 sleep 2
 
 echo "Initializing data..."
 
-"$CMD_MCLIENT" -d "$DB_NAME" <<EOF
-
+"$CMD_MCLIENT" -d "$DB_NAME" -t performance <<EOF
 DROP TABLE IF EXISTS model;
 DROP TABLE IF EXISTS uw;
 DROP TABLE IF EXISTS mw;
