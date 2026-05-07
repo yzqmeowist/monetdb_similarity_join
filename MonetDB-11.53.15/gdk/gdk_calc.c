@@ -6137,8 +6137,8 @@ BATcalcpcaapply(BAT **res, BAT *vec_bat, const char *model_str)
     }
 
     oid n = BATcount(vec_bat);
-    // int nthreads = GDKnr_threads;
-		int nthreads = 1;
+    int nthreads = GDKnr_threads;
+		// int nthreads = 1;
     pthread_t *threads = NULL;
     pcaapply_thread_data *tdata = NULL;
     gdk_return msg = GDK_SUCCEED;

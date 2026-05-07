@@ -681,8 +681,6 @@ bind_pca_rewrite(visitor *v, global_props *gp)
     return rel_pca_rewrite; 
 }
 
-
-
 /* these optimizers/rewriters run in a cycle loop */
 const sql_optimizer pre_sql_optimizers[] = {
 	{ 0, "split_select", bind_split_select},

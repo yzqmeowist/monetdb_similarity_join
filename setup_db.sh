@@ -202,22 +202,27 @@ DROP TABLE IF EXISTS model;
 DROP TABLE IF EXISTS uw;
 DROP TABLE IF EXISTS mw;
 
-CREATE TABLE uw (U VARCHAR(10), F VARCHAR(2000));
-CREATE TABLE mw (M VARCHAR(10), G VARCHAR(2000));
+CREATE TABLE uw (U VARCHAR(10), F CLOB);
+CREATE TABLE mw (M VARCHAR(10), G CLOB);
 
-COPY INTO uw FROM '$ROOT_DIR/ml-latest-small/uw.csv' USING DELIMITERS ',', '\n', '"';
-COPY INTO mw FROM '$ROOT_DIR/ml-latest-small/mw.csv' USING DELIMITERS ',', '\n', '"';
+COPY INTO uw FROM '$ROOT_DIR/ml-latest/uw.csv' USING DELIMITERS ',', '\n', '"';
+COPY INTO mw FROM '$ROOT_DIR/ml-latest/mw.csv' USING DELIMITERS ',', '\n', '"';
 
-CREATE TABLE mo(R CLOB);
-INSERT INTO mo SELECT pcatrain(F, CAST(32 AS INTEGER)) FROM uw;
-
-SET optimizer = 'default_pipe';
+--Baseline
+DROP TABLE IF EXISTS mo; 
 SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 10;
 
-# SET optimizer = 'pca_pipe';
-# SELECT '--- Fast Result (PCA Accelerated) ---' AS mode;
+CREATE TABLE mo(R CLOB);
+INSERT INTO mo SELECT pcatrain(F, CAST(64 AS INTEGER)) 
+FROM (SELECT F FROM uw ORDER BY rand() LIMIT 900) AS subq;
 
-# SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 10;
+--Filter: Top-50
+DROP TABLE IF EXISTS candidates;
+CREATE TABLE candidates AS SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 50;
+
+--Refine: Tap-10
+DROP TABLE mo;
+SELECT c.M FROM candidates c, uw, mw WHERE uw.U='u2' AND mw.M = c.M ORDER BY dot(uw.F, mw.G) DESC LIMIT 10;
 
 
 EOF
@@ -298,3 +303,6 @@ echo "    mclient -d $DB_NAME"
 # JOIN mw ON c.M = mw.M
 # ORDER BY dot((SELECT F FROM uw WHERE U='u2'), mw.G) DESC
 # LIMIT 10;
+
+
+# INSERT INTO mo SELECT pcatrain(F, CAST(16 AS INTEGER)) FROM uw;
