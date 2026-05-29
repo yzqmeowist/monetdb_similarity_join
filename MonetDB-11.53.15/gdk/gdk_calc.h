@@ -170,8 +170,15 @@ gdk_export BAT *BATgroupstr_group_concat(BAT *b, BAT *g, BAT *e, BAT *s, BAT *se
 gdk_export gdk_return BATstr_group_concat(ValPtr res, BAT *b, BAT *s, BAT *sep, bool skip_nils, bool nil_if_empty, const char *restrict separator);
 gdk_export gdk_return GDKanalytical_str_group_concat(BAT *r, BAT *p, BAT *o, BAT *b, BAT *sep, BAT *s, BAT *e, const char *restrict separator, int frame_type);
 
+// gdk_return VARcalcdotproduct(ValPtr ret, const ValRecord *lft, const ValRecord *rgt);
 gdk_export gdk_return BATcalcsimilarityjoin(BAT **r1, BAT **r2, const BAT *b1, const BAT *b2, dbl threshold);
 gdk_export gdk_return BATcalcdot(BAT **res, const BAT *b1, const BAT *b2);
 gdk_export gdk_return BATcalcdotcst(BAT **res, const BAT *b, const ValRecord *v);
 gdk_export gdk_return BATcstcalcdot(BAT **res, const ValRecord *v, const BAT *b);
 gdk_export gdk_return VALcalcdot(ValPtr ret, const ValRecord *lft, const ValRecord *rgt);
+
+
+// compression similarity join, pca
+gdk_export char *BATcalcpcatrain(const BAT *vectors, int target_dim);
+gdk_export gdk_return BATcalcpcaapply(BAT **res, BAT *vec_bat, const char *model_str);
+

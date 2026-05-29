@@ -5273,14 +5273,45 @@ rel_value_exp2(sql_query *query, sql_rel **rel, symbol *se, int f, exp_kind ek)
 
 		if (!(l_exp = rel_value_exp(query, rel, l->h->data.sym, f, ek)))
 			return NULL;
-
+		
 		if (!(r_exp = rel_value_exp(query, rel, l->h->next->data.sym, f, ek)))
 			return NULL;
 
-		return rel_binop_(sql, rel ? *rel : NULL, l_exp, r_exp, "sys", "dot", card_value, 0);
+		return rel_binop_(sql, *rel, l_exp, r_exp, "sys", "dot", card_value, 0);
 	}
+	//compression similarity join, pca
+	case SQL_PCATRAIN: {
+    dlist *l = se->data.lval;
+    sql_exp *l_exp, *r_exp;
+    list *args;
+    sql_subfunc *fnc;
+
+    if (!(l_exp = rel_value_exp(query, rel, l->h->data.sym, f, ek))) {
+        return NULL;
+    }
+    
+    if (!(r_exp = rel_value_exp(query, rel, l->h->next->data.sym, f, ek))) {
+        return NULL;
+    }
+
+    fnc = sql_bind_func(sql, "sys", "pcatrain", exp_subtype(l_exp), exp_subtype(r_exp), F_AGGR, false, false);
+    
+    if (!fnc) {
+        return sql_error(sql, 02, SQLSTATE(42000) "PCA Error: Aggregate function 'pcatrain' not found.");
+    }
+
+    args = sa_list(sql->sa);
+    list_append(args, l_exp);
+    list_append(args, r_exp);
+
+    int cardinality = (rel && *rel) ? (*rel)->card : CARD_ATOM;
+
+    sql_exp *res_exp = exp_aggr(sql->sa, args, fnc, 0, 0, cardinality, 0); 
+
+    return res_exp;
+  }
 	default:
-		return rel_logical_value_exp(query, rel, se, f, ek);
+			return rel_logical_value_exp(query, rel, se, f, ek);
 	}
 }
 

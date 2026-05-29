@@ -644,6 +644,7 @@ int yydebug=1;
 
 %token <sval> EXTRACT
 %token <sval> DOT
+%token <sval> PCATRAIN
 
 /* sequence operations */
 %token SEQUENCE INCREMENT RESTART CONTINUE
@@ -4612,8 +4613,14 @@ scalar_exp:
 		  append_symbol(l, $4);
 		  append_symbol(l, $6);
 		  $$ = _symbol_create_list(SQL_BETWEEN, l ); }
- |  DEFAULT	{ $$ = _symbol_create(SQL_DEFAULT, NULL ); }
- ;
+	| PCATRAIN '(' scalar_exp ',' scalar_exp ')'
+    {	dlist *l = L();
+			append_symbol(l, $3);        /* column name */
+			append_symbol(l, $5);            /* target dim */
+			
+			$$ = symbol_create_list(m->sa, SQL_PCATRAIN, l);}
+	|  DEFAULT { $$ = _symbol_create(SQL_DEFAULT, NULL ); }
+	;
 
 in_expr:
      select_with_parens { $$ = append_symbol(L(), $1); }

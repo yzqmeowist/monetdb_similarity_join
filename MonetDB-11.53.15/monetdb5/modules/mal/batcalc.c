@@ -1265,6 +1265,7 @@ CMDifthen(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
 	return MAL_SUCCEED;
 }
 
+/* similarity join */
 static str
 CMDbatSIMJOIN(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
 {
@@ -1398,6 +1399,164 @@ CMDcstDOTcst(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
 		       &stk->stk[getArg(pci, 2)]) != GDK_SUCCEED)
 		return mythrow(MAL, "batcalc.dot", OPERATION_FAILED);
 	return MAL_SUCCEED;
+}
+
+// Global pointer for the active PCA model
+char *g_pca_active_model = NULL;
+
+static str
+CMDbatPCATRAIN(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+    str *res = getArgReference_str(stk, pci, 0);
+    bat vid = *getArgReference_bat(stk, pci, 1);
+    bat did = *getArgReference_bat(stk, pci, 2);
+    BAT *vectors_bat = NULL, *dim_bat = NULL;
+    int target_dim;
+
+    (void)cntxt; (void)mb;
+
+    if ((vectors_bat = BATdescriptor(vid)) == NULL) {
+        throw(MAL, "batcalc.pcatrain", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    }
+    
+    if ((dim_bat = BATdescriptor(did)) == NULL) {
+        BBPunfix(vectors_bat->batCacheid);
+        throw(MAL, "batcalc.pcatrain", "Cannot access dimension BAT");
+    }
+
+    target_dim = *(int*)Tloc(dim_bat, 0); 
+    BBPunfix(dim_bat->batCacheid); 
+    
+    char *model_str = BATcalcpcatrain(vectors_bat, target_dim);
+    
+    BBPunfix(vectors_bat->batCacheid);
+
+    if (!model_str) {
+        throw(MAL, "batcalc.pcatrain", "PCA Training failed in GDK core");
+    }
+    
+    // Cache the trained model globally in the engine memory
+    if (g_pca_active_model != NULL) {
+        GDKfree(g_pca_active_model); 
+    }
+    g_pca_active_model = GDKstrdup(model_str); 
+
+    *res = model_str; 
+    return MAL_SUCCEED;
+}
+
+// PCA Apply: (bat, bat) -> bat
+static str 
+CMDbatPCAAPPLY(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+    bat *res = getArgReference_bat(stk, pci, 0);
+    bat vid = *getArgReference_bat(stk, pci, 1);
+    bat mid = *getArgReference_bat(stk, pci, 2);
+    BAT *vectors_bat = NULL, *mod_bat = NULL, *out_bat = NULL;
+    gdk_return err;
+
+    (void)cntxt; (void)mb;
+
+    if ((vectors_bat = BATdescriptor(vid)) == NULL) {
+        throw(MAL, "batcalc.pcaapply", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    }
+    
+    if ((mod_bat = BATdescriptor(mid)) == NULL) {
+        BBPunfix(vectors_bat->batCacheid);
+        throw(MAL, "batcalc.pcaapply", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    }
+    
+    BATiter mod_bi = bat_iterator(mod_bat);
+    const char *model_str = (const char *)BUNtvar(mod_bi, 0);
+    
+    err = BATcalcpcaapply(&out_bat, vectors_bat, model_str);
+
+    bat_iterator_end(&mod_bi);
+    BBPunfix(mod_bat->batCacheid);
+    BBPunfix(vectors_bat->batCacheid);
+
+    if (err != GDK_SUCCEED || out_bat == NULL) {
+        throw(MAL, "batcalc.pcaapply", "GDK core algorithm failed during PCA Apply.");
+    }
+
+    *res = out_bat->batCacheid;
+    BBPkeepref(out_bat);
+
+    return MAL_SUCCEED;
+}
+
+// PCA Apply: (str, str) -> str (Scalar version for Multiplexer)
+static str 
+CMDcstPCAAPPLYcst(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+    str *res = getArgReference_str(stk, pci, 0); 
+    str val = *getArgReference_str(stk, pci, 1); 
+    str model = *getArgReference_str(stk, pci, 2); 
+    
+    BAT *b_in = NULL, *out_bat = NULL;
+    gdk_return err;
+
+    (void)cntxt; (void)mb;
+
+    //Create a 1-row temporary BAT for the scalar input
+    b_in = COLnew(0, TYPE_str, 1, TRANSIENT);
+    if (!b_in) {
+        throw(MAL, "batcalc.pcaapply", SQLSTATE(HY013) MAL_MALLOC_FAIL);
+    }
+    
+    if (BUNappend(b_in, val, false) != GDK_SUCCEED) {
+        BBPunfix(b_in->batCacheid);
+        throw(MAL, "batcalc.pcaapply", "Failed to append string to temp BAT");
+    }
+
+    err = BATcalcpcaapply(&out_bat, b_in, model);
+    
+    BBPunfix(b_in->batCacheid); 
+
+    if (err != GDK_SUCCEED || out_bat == NULL) {
+        throw(MAL, "batcalc.pcaapply", "GDK core algorithm failed during Scalar PCA Apply.");
+    }
+
+    BATiter bi = bat_iterator(out_bat);
+    const char *result_str = (const char *)BUNtvar(bi, 0);
+    
+    *res = GDKstrdup(result_str); 
+
+    bat_iterator_end(&bi);
+    BBPunfix(out_bat->batCacheid); 
+
+    return MAL_SUCCEED;
+}
+
+// PCA Apply: (bat, str) -> bat (Vector input, scalar model)
+static str 
+CMDbatPCAAPPLYcst(Client cntxt, MalBlkPtr mb, MalStkPtr stk, InstrPtr pci)
+{
+    bat *res = getArgReference_bat(stk, pci, 0);
+    bat vid = *getArgReference_bat(stk, pci, 1);
+    str model_str = *getArgReference_str(stk, pci, 2); 
+    
+    BAT *vectors_bat = NULL, *out_bat = NULL;
+    gdk_return err;
+
+    (void)cntxt; (void)mb;
+
+    if ((vectors_bat = BATdescriptor(vid)) == NULL) {
+        throw(MAL, "batcalc.pcaapply", SQLSTATE(HY002) RUNTIME_OBJECT_MISSING);
+    }
+    
+    err = BATcalcpcaapply(&out_bat, vectors_bat, model_str);
+
+    BBPunfix(vectors_bat->batCacheid);
+
+    if (err != GDK_SUCCEED || out_bat == NULL) {
+        throw(MAL, "batcalc.pcaapply", "GDK core algorithm failed.");
+    }
+
+    *res = out_bat->batCacheid;
+    BBPkeepref(out_bat);
+
+    return MAL_SUCCEED;
 }
 
 #include "mel.h"
@@ -2035,6 +2194,7 @@ batcalc_init(void)
 		    }
 		}
 	}
+	
 	return MAL_SUCCEED;
 }
 
@@ -2107,9 +2267,15 @@ static mel_func batcalc_init_funcs[] = {
  pattern("batcalc", "dot", CMDcstDOTcst, false, "Dot product between string constants", args(1,3, arg("",dbl),arg("l",str),arg("r",str))),
  pattern("batcalc", "dot", CMDcstDOTcst, false, "Dot product between blob constants", args(1,3, arg("",dbl),arg("l",blob),arg("r",blob))),
 
+ pattern("batcalc", "pcatrain", CMDbatPCATRAIN, false, "Train data and get a PCA model string", args(1,3, arg("",str), batarg("vectors",str), batarg("target_dim",int))),        
+ pattern("batcalc", "pcaapply", CMDbatPCAAPPLY, false, "Apply PCA model to vector data", args(1,3, batarg("",str), batarg("vectors",str), batarg("model_bat_id",str))),
+ pattern("batcalc", "pcaapply", CMDcstPCAAPPLYcst, false, "Apply PCA model to scalar string (Multiplexer)", args(1,3, arg("",str), arg("val",str), arg("model",str))),
+ pattern("batcalc", "pcaapply", CMDbatPCAAPPLYcst, false, "Apply PCA model (scalar) to vector data", args(1,3, batarg("",str), batarg("vectors",str), arg("model_str",str))),
+
  { .imp=NULL }
 
 };
+
 #include "mal_import.h"
 #ifdef _MSC_VER
 #undef read

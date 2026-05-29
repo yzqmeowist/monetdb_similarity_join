@@ -54,42 +54,39 @@ else
     "$CMD_MONETDB" create "$DB_NAME" || { echo "failed to create"; exit 1; }
 fi
 
+# "$CMD_MONETDB" set gdk_nr_threads=1 "$DB_NAME"
 "$CMD_MONETDB" release "$DB_NAME"
 sleep 2
 
 echo "Initializing data..."
 
 "$CMD_MCLIENT" -d "$DB_NAME" -t performance <<EOF
+DROP TABLE IF EXISTS model;
 DROP TABLE IF EXISTS uw;
 DROP TABLE IF EXISTS mw;
 
-CREATE TABLE uw (U VARCHAR(10), F VARCHAR(2000));
-CREATE TABLE mw (M VARCHAR(10), G VARCHAR(2000));
+CREATE TABLE uw (U VARCHAR(10), F CLOB);
+CREATE TABLE mw (M VARCHAR(10), G CLOB);
 
-COPY INTO uw FROM '$ROOT_DIR/ml-latest-small/uw.csv' USING DELIMITERS ',', '\n', '"';
-COPY INTO mw FROM '$ROOT_DIR/ml-latest-small/mw.csv' USING DELIMITERS ',', '\n', '"';
+COPY INTO uw FROM '$ROOT_DIR/ml-latest/uw.csv' USING DELIMITERS ',', '\n', '"';
+COPY INTO mw FROM '$ROOT_DIR/ml-latest/mw.csv' USING DELIMITERS ',', '\n', '"';
 
-# INSERT INTO uw VALUES ('u2', '[1.0, -0.5]'), ('u3', '[2.0, -1.0]'), 
-#                       ('u4', '[4.2, 1.3]'),  ('u5', '[1.0, -0.7]');
+--Baseline
+DROP TABLE IF EXISTS mo; 
+SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 10;
 
-# INSERT INTO mw VALUES ('m1', '[1.9, -1.5]'), ('m2', '[1.1, -2.0]'), 
-#                       ('m4', '[2.1, -0.6]');
+CREATE TABLE mo(R CLOB);
+INSERT INTO mo SELECT pcatrain(F, CAST(64 AS INTEGER)) 
+FROM (SELECT F FROM uw ORDER BY rand() LIMIT 900) AS subq;
 
-SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 5;
-SELECT U,M FROM uw, mw WHERE dot(F,G) > 3;
+--Filter: Top-50
+DROP TABLE IF EXISTS candidates;
+CREATE TABLE candidates AS SELECT M FROM uw, mw WHERE U='u2' ORDER BY dot(F,G) DESC LIMIT 50;
 
-# self-similarity join
-SELECT a.U, b.U FROM uw AS a, uw AS b WHERE a.U < b.U AND dot(a.F, b.F) > 0.95;
+--Refine: Tap-10
+DROP TABLE mo;
+SELECT c.M FROM candidates c, uw, mw WHERE uw.U='u2' AND mw.M = c.M ORDER BY dot(uw.F, mw.G) DESC LIMIT 10;
 
-# similarity aggregation
-SELECT U, AVG(dot(F,G)) FROM uw, mw GROUP BY U;
-
-# Mixed
-SELECT U, M FROM uw, mw WHERE M='m1' AND U LIKE 'u%' AND dot(F,G) > 1.5;
-
-# dot(scalar,scalar)
-SELECT DOT('[1,2]','[3,4]') AS s;
-SELECT DOT('[1,2]','[3]') AS s;
 
 EOF
 
@@ -98,5 +95,3 @@ echo "Please execute the following command to test your changes:"
 echo "    export DOTMONETDBFILE=\"$AUTH_FILE\""
 echo "    export PATH=\"$BIN_DIR:\$PATH\""
 echo "    mclient -d $DB_NAME"
-
-

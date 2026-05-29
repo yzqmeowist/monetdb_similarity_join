@@ -25,6 +25,8 @@
 #include "sql_privileges.h"
 #include "sql_storage.h"
 
+extern char *g_pca_active_model;
+
 sql_rel *
 rel_table(mvc *sql, int cat_type, const char *sname, sql_table *t, int nr)
 {
@@ -1854,6 +1856,20 @@ schema_auth(dlist *name_auth)
 static sql_rel *
 rel_drop(allocator *sa, int cat_type, char *sname, char *first_val, char *second_val, int nr, int exists_check)
 {
+	//drop model will change model pointer to NULL
+	if (cat_type == ddl_drop_table && first_val != NULL && strcmp(first_val, "mo") == 0) 
+	{
+			if (g_pca_active_model != NULL) 
+			{
+					fprintf(stderr, "\n[PCA-SYSTEM] Detected DROP TABLE 'mo'. Clearing global model pointer...\n");
+					
+					GDKfree(g_pca_active_model);
+					g_pca_active_model = NULL; 
+					
+					fprintf(stderr, "[PCA-SYSTEM] Global model pointer cleared successfully.\n");
+			}
+  }
+	
 	sql_rel *rel = rel_create(sa);
 	list *exps = new_exp_list(sa);
 
