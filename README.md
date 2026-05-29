@@ -23,8 +23,6 @@ export DOTMONETDBFILE="/Users/yzq/projects/monetdb_similarity_join/.monetdb_auth
     mclient -d test_db
 ```
 
-(TODO)
-
 ## Dataset
 
 We use MovieLens as a test dataset: https://grouplens.org/datasets/movielens/latest/
